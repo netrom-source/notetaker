@@ -11,18 +11,62 @@ import os
 import time
 from PyQt6 import QtWidgets, QtCore, QtGui
 
+# Fremhæv Markdown under skrivning
+class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
+    """En simpel highlighter der viser Markdown-formatering direkte."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.bold_format = QtGui.QTextCharFormat()
+        self.bold_format.setFontWeight(QtGui.QFont.Weight.Bold)
+
+        self.italic_format = QtGui.QTextCharFormat()
+        self.italic_format.setFontItalic(True)
+
+        self.heading_format = QtGui.QTextCharFormat()
+        self.heading_format.setFontWeight(QtGui.QFont.Weight.Bold)
+        self.heading_format.setForeground(QtGui.QBrush(QtGui.QColor("#e0e0e0")))
+
+    def highlightBlock(self, text: str) -> None:
+        # **fed**
+        bold = QtCore.QRegularExpression(r"\*\*(.+?)\*\*")
+        it = bold.globalMatch(text)
+        while it.hasNext():
+            match = it.next()
+            self.setFormat(match.capturedStart(1), match.capturedLength(1), self.bold_format)
+
+        # *kursiv*
+        italic = QtCore.QRegularExpression(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)")
+        it = italic.globalMatch(text)
+        while it.hasNext():
+            match = it.next()
+            self.setFormat(match.capturedStart(1), match.capturedLength(1), self.italic_format)
+
+        # overskrifter med #
+        heading = QtCore.QRegularExpression(r"^(#+)\s+(.*)")
+        match = heading.match(text)
+        if match.hasMatch():
+            self.setFormat(match.capturedStart(2), match.capturedLength(2), self.heading_format)
+
 # ----- Hjælpeklasser -----
 
 class NoteTab(QtWidgets.QTextEdit):
     """En teksteditor der kan blokere sletning i Hemmingway-tilstand."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.hemingway = False  # Hvis sand, blokeres tilbage- og delete-tasterne
+        self.hemingway = False  # Hvis sand, blokeres sletning og navigation bagud
+        self.setFont(QtGui.QFont("JetBrains Mono", 10))
+        self.setStyleSheet("background:#2b2b2b;color:#e6e6e6")
+        self.highlighter = MarkdownHighlighter(self.document())
     def keyPressEvent(self, event: QtGui.QKeyEvent):
-        if self.hemingway and event.key() in (QtCore.Qt.Key.Key_Backspace,
-                                              QtCore.Qt.Key.Key_Delete):
-            # Ignorér forsøg på at slette i Hemmingway-tilstand
-            return
+        if self.hemingway:
+            blocked = [QtCore.Qt.Key.Key_Backspace,
+                       QtCore.Qt.Key.Key_Delete,
+                       QtCore.Qt.Key.Key_Left,
+                       QtCore.Qt.Key.Key_Up]
+            if event.key() in blocked:
+                # Bloker sletning og bevægelse bagud
+                return
         super().keyPressEvent(event)
 
 class TimerWidget(QtWidgets.QLabel):
@@ -67,7 +111,8 @@ class TimerWidget(QtWidgets.QLabel):
 class TimerDialog(QtWidgets.QDialog):
     """Dialog til valg af timerens længde."""
 
-    presets = [5*60, 15*60, 25*60]  # forhåndsdefinerede tider i sekunder
+    # Prædefinerede tider i sekunder
+    presets = [30, 3*60, 7*60, 11*60]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -80,7 +125,7 @@ class TimerDialog(QtWidgets.QDialog):
             self.layout().addWidget(btn)
             self.buttons.append(btn)
         self.custom_input = QtWidgets.QLineEdit()
-        self.custom_input.setPlaceholderText("Skriv antal minutter...")
+        self.custom_input.setPlaceholderText("Skriv antal sekunder...")
         self.layout().addWidget(self.custom_input)
         self.selected_seconds = None
 
@@ -93,25 +138,41 @@ class TimerDialog(QtWidgets.QDialog):
         for btn in self.buttons:
             btn.clicked.connect(self._preset_chosen)
         self.custom_input.returnPressed.connect(self._custom_chosen)
+        self.custom_input.installEventFilter(self)
 
     def _preset_chosen(self):
         text = self.sender().text()
-        minutes = int(text.split(' ')[0])
-        self.selected_seconds = minutes * 60
+        value = int(text.split(' ')[0])
+        if 'sek' in text:
+            self.selected_seconds = value
+        else:
+            self.selected_seconds = value * 60
         self.accept()
 
     def _custom_chosen(self):
         try:
-            minutes = int(self.custom_input.text())
-            self.selected_seconds = minutes * 60
+            self.selected_seconds = int(self.custom_input.text())
             self.accept()
         except ValueError:
             QtWidgets.QMessageBox.warning(self, "Ugyldigt tal",
                                           "Indtast et heltal for minutter")
 
+    def eventFilter(self, obj, event):
+        """Sørger for at man kan gå tilbage til presets med pil op."""
+        if obj is self.custom_input and event.type() == QtCore.QEvent.Type.KeyPress:
+            if event.key() == QtCore.Qt.Key.Key_Up:
+                self.buttons[-1].setFocus()
+                return True
+            if event.key() == QtCore.Qt.Key.Key_Down:
+                return True  # lås fokus
+        return super().eventFilter(obj, event)
+
     @staticmethod
     def _fmt(seconds: int) -> str:
-        return f"{seconds//60} minutter"
+        if seconds < 60:
+            return f"{seconds} sek"
+        else:
+            return f"{seconds//60} min"
 
 # ----- Hovedvindue -----
 
@@ -130,6 +191,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
         # Timer øverst
         self.timer_widget = TimerWidget()
+        self.timer_widget.timeout.connect(self.timer_finished)
         vlayout.addWidget(self.timer_widget)
 
         # Fanelinje
@@ -139,6 +201,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Statuslinje nederst
         self.status = QtWidgets.QStatusBar()
         self.setStatusBar(self.status)
+        self.hemi_label = QtWidgets.QLabel("")
+        self.status.addPermanentWidget(self.hemi_label)
 
         # Start med en enkelt tom fane
         self.new_tab()
@@ -146,6 +210,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Interne tilstande
         self.hemingway = False
         self.last_timer_trigger = 0
+        self.last_reset = 0
+        self.current_duration = 0
 
         # Genveje
         self._setup_shortcuts()
@@ -163,8 +229,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+,"), self, self.prev_tab)
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+."), self, self.next_tab)
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+T"), self, self.toggle_timer)
+        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+R"), self, self.reset_or_stop_timer)
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+H"), self, self.toggle_hemingway)
-        QtGui.QShortcut(QtGui.QKeySequence("F11"), self, self.toggle_tabbar)
+        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Alt+."), self, self.toggle_tabbar)
 
     def current_editor(self) -> NoteTab:
         """Returner det aktive NoteTab-objekt."""
@@ -248,14 +315,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     # ----- Timerfunktioner -----
 
     def toggle_timer(self):
-        """Håndter Ctrl+T: Åbn dialog eller nulstil."""
-        now = time.time()
-        if now - self.last_timer_trigger < 1:  # double tap
-            self.timer_widget.reset()
-            self.status.showMessage("Timer nulstillet", 2000)
-        else:
-            self.show_timer_dialog()
-        self.last_timer_trigger = now
+        """Åbn dialogen til valg af tid."""
+        self.show_timer_dialog()
 
     def show_timer_dialog(self):
         """Vis dialogen hvor brugeren vælger tiden."""
@@ -264,7 +325,25 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             seconds = dialog.selected_seconds
             if seconds:
                 self.timer_widget.start(seconds)
-                self.status.showMessage(f"Timer startet: {seconds//60} min", 2000)
+                self.current_duration = seconds
+                self.status.showMessage(f"Timer startet: {self.current_duration} sek", 2000)
+
+    def reset_or_stop_timer(self):
+        """Resetter timeren eller stopper den ved dobbelttryk."""
+        now = time.time()
+        if now - self.last_reset < 2:
+            self.timer_widget.reset()
+            self.status.showMessage("Timer stoppet", 2000)
+            self.current_duration = 0
+        else:
+            if self.current_duration:
+                self.timer_widget.start(self.current_duration)
+                self.status.showMessage("Timer genstartet", 2000)
+        self.last_reset = now
+
+    def timer_finished(self):
+        """Vis besked når tiden er gået."""
+        self.status.showMessage("Tiden er gået", 5000)
 
     # ----- Hemmingway-tilstand -----
 
@@ -275,6 +354,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             editor = self.tabs.widget(i)
             editor.hemingway = self.hemingway
         tilstand = "aktiveret" if self.hemingway else "deaktiveret"
+        self.hemi_label.setText(f"Hemingway: {tilstand}")
         self.status.showMessage(f"Hemmingway {tilstand}", 2000)
 
 # ----- Programstart -----
