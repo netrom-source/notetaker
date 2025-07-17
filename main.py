@@ -14,7 +14,11 @@ from PyQt6 import QtWidgets, QtCore, QtGui
 
 # Fremhæv Markdown under skrivning
 class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
-    """En simpel highlighter der viser Markdown-formatering direkte."""
+    """En simpel highlighter der viser Markdown-formatering direkte.
+
+    Overskrifter (#, ## osv.) gives automatisk større skriftstørrelse,
+    så man kan se hierarkiet uden et separat preview-vindue.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,11 +47,17 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
             match = it.next()
             self.setFormat(match.capturedStart(1), match.capturedLength(1), self.italic_format)
 
-        # overskrifter med #
-        heading = QtCore.QRegularExpression(r"^(#+)\s+(.*)")
+        # overskrifter begynder med et eller flere #
+        heading = QtCore.QRegularExpression(r"^(#{1,6})\s+(.*)")
         match = heading.match(text)
         if match.hasMatch():
-            self.setFormat(match.capturedStart(2), match.capturedLength(2), self.heading_format)
+            level = len(match.captured(1))
+            fmt = QtGui.QTextCharFormat(self.heading_format)
+            base = self.document().defaultFont().pointSizeF()
+            # Jo færre #, jo større skrift
+            scale = {1:2.0, 2:1.7, 3:1.5, 4:1.3, 5:1.2, 6:1.1}.get(level, 1)
+            fmt.setFontPointSize(base * scale)
+            self.setFormat(0, len(text), fmt)
 
 # ----- Hjælpeklasser -----
 
@@ -87,7 +97,13 @@ class NoteTab(QtWidgets.QTextEdit):
         super().keyPressEvent(event)
 
 class TimerWidget(QtWidgets.QLabel):
-    """Et simpelt nedtællingsur øverst i vinduet."""
+    """Viser en nedtælling og udsender et signal når tiden er gået.
+
+    Denne klasse fungerer blot som et display: ``start`` sætter et
+    antal sekunder og widgetten opdaterer sig selv hvert sekund via en
+    intern ``QTimer``. Når nedtællingen rammer nul, udsendes ``timeout``
+    så andre dele af programmet kan reagere.
+    """
     timeout = QtCore.pyqtSignal()  # Signal der udsendes når tiden er gået
 
     def __init__(self, parent=None):
@@ -126,7 +142,12 @@ class TimerWidget(QtWidgets.QLabel):
         self.setText(f"{mins:02d}:{secs:02d}")
 
 class TimerDialog(QtWidgets.QDialog):
-    """Dialog til valg af timerens længde."""
+    """Lader brugeren vælge en tid før nedtællingen starter.
+
+    Dialogen viser fire foruddefinerede knapper og et felt hvor en
+    brugerdefineret tid i sekunder kan skrives. ``selected_seconds``
+    gemmer resultatet når dialogen lukkes.
+    """
 
     # Prædefinerede tider i sekunder
     presets = [30, 3*60, 7*60, 11*60]
@@ -206,21 +227,38 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         vlayout = QtWidgets.QVBoxLayout(central)
         vlayout.setContentsMargins(0, 0, 0, 0)
 
-        # Timer øverst
+        # Topbaren indeholder timeren til venstre og en Hemingway-knap til højre
+        top_bar = QtWidgets.QHBoxLayout()
+        vlayout.addLayout(top_bar)
+
+        # Timeren placeres i venstre side
         self.timer_widget = TimerWidget()
         self.timer_widget.timeout.connect(self.timer_finished)
+        top_bar.addWidget(self.timer_widget)
 
-        vlayout.addWidget(self.timer_widget)
+        # Spacer sørger for at Hemingway-knappen rykkes helt til højre
+        top_bar.addStretch()
+
+        # Knap til at aktivere/deaktivere Hemingway Mode
+        self.hemi_button = QtWidgets.QToolButton()
+        self.hemi_button.setCheckable(True)
+        self.hemi_button.setText("\u2712")  # sort fyldt pen som ikon
+        # Farven skifter alt efter om knappen er trykket ned eller ej
+        self.hemi_button.setStyleSheet(
+            "QToolButton {color:#888;background:transparent;border:none;}"
+            "QToolButton:checked {color:#00aa00;}"
+        )
+        self.hemi_button.setToolTip("Skift Hemingway Mode")
+        self.hemi_button.clicked.connect(self.toggle_hemingway)
+        top_bar.addWidget(self.hemi_button)
 
         # Fanelinje
         self.tabs = QtWidgets.QTabWidget()
         vlayout.addWidget(self.tabs)
 
-        # Statuslinje nederst
+        # Statuslinjen nederst viser midlertidige beskeder
         self.status = QtWidgets.QStatusBar()
         self.setStatusBar(self.status)
-        self.hemi_label = QtWidgets.QLabel("")
-        self.status.addPermanentWidget(self.hemi_label)
 
         # Først angiv standard skalering
         self.scale_factor = 1.0
@@ -262,7 +300,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         return self.tabs.currentWidget()
 
     # ----- Fanehåndtering -----
-    
+
+
     def _generate_filename(self) -> str:
         """Lav et tidsstempel-navn i mappen data."""
         os.makedirs("data", exist_ok=True)
@@ -404,13 +443,19 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     # ----- Hemmingway-tilstand -----
 
     def toggle_hemingway(self):
-        """Slå Hemmingway-tilstand til eller fra."""
+        """Aktiver eller deaktiver Hemingway Mode.
+
+        Hemmingway-tilstand forhindrer brugeren i at slette tekst eller
+        bevæge markøren bagud. Funktionen kan slås til via genvejen
+        ``Ctrl+H`` eller ved at klikke på pen-knappen i øverste højre hjørne.
+        """
         self.hemingway = not self.hemingway
         for i in range(self.tabs.count()):
             editor = self.tabs.widget(i)
             editor.hemingway = self.hemingway
+        # Synkroniser knappen med den interne tilstand
+        self.hemi_button.setChecked(self.hemingway)
         tilstand = "aktiveret" if self.hemingway else "deaktiveret"
-        self.hemi_label.setText(f"Hemingway: {tilstand}")
         self.status.showMessage(f"Hemmingway {tilstand}", 2000)
 
     # ----- Gem og genskab session -----
@@ -420,7 +465,13 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         super().closeEvent(event)
 
     def save_session(self):
-        """Gem hvilke filer der er åbne og aktiv fane."""
+        """Gemmer information om den aktuelle session.
+
+        Denne metode kaldes når vinduet lukkes og skriver en JSON-fil
+        med stien til alle åbne filer, hvilken fane der var aktiv samt
+        det nuværende zoom-niveau. Ved næste opstart kan ``load_session``
+        bruge disse oplysninger til at genskabe arbejdsfladen.
+        """
         data = {
             "files": [self.tabs.widget(i).file_path for i in range(self.tabs.count())],
             "current": self.tabs.currentIndex(),
@@ -430,7 +481,13 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             json.dump(data, f)
 
     def load_session(self) -> bool:
-        """Åbn tidligere session hvis den findes."""
+        """Forsøg at genskabe en tidligere session.
+
+        Returnerer ``True`` hvis en session blev indlæst, ellers ``False``.
+        Det betyder at programmet kan starte med tomme faner hvis der
+        ikke eksisterer en ``session.json``. Metoden kigger på hver fil,
+        åbner den hvis den findes, og genopretter også zoom-niveauet.
+        """
         try:
             with open("session.json", "r", encoding="utf-8") as f:
                 data = json.load(f)
