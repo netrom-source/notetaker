@@ -301,6 +301,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     # ----- Fanehåndtering -----
 
+
     def _generate_filename(self) -> str:
         """Lav et tidsstempel-navn i mappen data."""
         os.makedirs("data", exist_ok=True)
