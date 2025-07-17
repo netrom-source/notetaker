@@ -209,6 +209,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Timer øverst
         self.timer_widget = TimerWidget()
         self.timer_widget.timeout.connect(self.timer_finished)
+
         vlayout.addWidget(self.timer_widget)
 
         # Fanelinje
@@ -261,7 +262,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         return self.tabs.currentWidget()
 
     # ----- Fanehåndtering -----
-
+    
     def _generate_filename(self) -> str:
         """Lav et tidsstempel-navn i mappen data."""
         os.makedirs("data", exist_ok=True)
