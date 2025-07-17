@@ -48,6 +48,7 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
         if match.hasMatch():
             self.setFormat(match.capturedStart(2), match.capturedLength(2), self.heading_format)
 
+
 # ----- Hjælpeklasser -----
 
 class NoteTab(QtWidgets.QTextEdit):
