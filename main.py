@@ -479,6 +479,14 @@ class TimerMenu(QtWidgets.QWidget):
                     return True
         return super().eventFilter(obj, event)
 
+    def update_scale(self, font: QtGui.QFont, width: int):
+        """Tilpas font og bredde efter zoom."""
+        self.setFont(font)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFont(font)
+        if self.isVisible() and self.parent():
+            self.setFixedWidth(int(width * 0.33))
+
     @staticmethod
     def _fmt(seconds: int) -> str:
         return f"{seconds // 60 if seconds >= 60 else seconds} {'min' if seconds >= 60 else 'sek'}"
@@ -602,6 +610,14 @@ class FileMenu(QtWidgets.QWidget):
                 obj.click()
                 return True
         return super().eventFilter(obj, event)
+
+    def update_scale(self, font: QtGui.QFont, width: int):
+        """Tilpas menuens font og bredde efter zoom."""
+        self.setFont(font)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFont(font)
+        if self.isVisible() and self.parent():
+            self.setFixedWidth(int(width * 0.5))
 
 
 class DeleteMenu(QtWidgets.QWidget):
@@ -801,6 +817,14 @@ class DeleteMenu(QtWidgets.QWidget):
             self.hide_menu()
             self.confirmed.emit()
 
+    def update_scale(self, font: QtGui.QFont, width: int):
+        """Opdater font og bredde efter zoom."""
+        self.setFont(font)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFont(font)
+        if self.isVisible() and self.parent():
+            self.setFixedWidth(int(width * 0.5))
+
 
 class PowerMenu(QtWidgets.QWidget):
     """Fuldskærmsmenu der aktiveres ved at holde Escape nede."""
@@ -902,11 +926,8 @@ class NotificationBar(QtWidgets.QStatusBar):
         shadow.setBlurRadius(8)
         shadow.setOffset(0, 0)
         self.setGraphicsEffect(shadow)
-        self.setMaximumHeight(0)
+        self.setMaximumHeight(self.sizeHint().height())
         self._anim = None
-        self._hide_timer = QtCore.QTimer(self)
-        self._hide_timer.setSingleShot(True)
-        self._hide_timer.timeout.connect(self.hide_bar)
 
     def show_bar(self):
         end = self.sizeHint().height()
@@ -927,14 +948,10 @@ class NotificationBar(QtWidgets.QStatusBar):
         self._anim = anim
 
     def showMessage(self, message: str, timeout: int = 0) -> None:
-        self.show_bar()
         super().showMessage(message, timeout)
-        if timeout > 0:
-            self._hide_timer.start(timeout)
 
     def clearMessage(self) -> None:
         super().clearMessage()
-        self.hide_bar()
 
 # ----- Hovedvindue -----
 
@@ -1131,11 +1148,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
         if self.timer_menu.isVisible() and self.timer_menu.parent():
-            self.timer_menu.setFixedWidth(int(self.width() * 0.33))
+            self.timer_menu.update_scale(self.font(), self.width())
         if self.file_menu.isVisible() and self.file_menu.parent():
-            self.file_menu.setFixedWidth(int(self.width() * 0.5))
+            self.file_menu.update_scale(self.font(), self.width())
         if self.delete_menu.isVisible() and self.delete_menu.parent():
-            self.delete_menu.setFixedWidth(int(self.width() * 0.5))
+            self.delete_menu.update_scale(self.font(), self.width())
 
     def _style_tabs(self, padding: int = 4):
         """Stil opsætningen af fanelinjen.
@@ -1164,6 +1181,21 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         anim.setDuration(200)
         anim.setStartValue(self.indicator.geometry())
         anim.setEndValue(end)
+        anim.start()
+        self._indicator_anim = anim
+
+    def _indicator_from_bottom(self):
+        """Vis bjælken ved at glide op nedefra under den aktive fane."""
+        bar = self.tabs.tabBar()
+        rect = bar.tabRect(self.tabs.currentIndex())
+        end_y = bar.sizeHint().height() - 3
+        start_rect = QtCore.QRect(rect.left(), bar.sizeHint().height(), rect.width(), 3)
+        self.indicator.setGeometry(start_rect)
+        self.indicator.show()
+        anim = QtCore.QPropertyAnimation(self.indicator, b"geometry")
+        anim.setDuration(200)
+        anim.setStartValue(start_rect)
+        anim.setEndValue(QtCore.QRect(rect.left(), end_y, rect.width(), 3))
         anim.start()
         self._indicator_anim = anim
 
@@ -1305,20 +1337,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             bar.setVisible(True)
             anim.setStartValue(0)
             anim.setEndValue(end)
-            # Placer bjælken under fanelinjen og lad den glide op
-            rect = bar.tabRect(self.tabs.currentIndex())
-            start_rect = QtCore.QRect(rect.left(), end, rect.width(), 3)
-            self.indicator.setGeometry(start_rect)
-            self.indicator.show()
-            ind_anim = QtCore.QPropertyAnimation(self.indicator, b"geometry")
-            ind_anim.setDuration(200)
-            ind_anim.setStartValue(start_rect)
-            ind_anim.setEndValue(QtCore.QRect(rect.left(), end - 3, rect.width(), 3))
-            ind_anim.start()
-            self._indicator_anim = ind_anim
+            QtCore.QTimer.singleShot(0, self._indicator_from_bottom)
             anim.finished.connect(lambda: self._move_indicator(self.tabs.currentIndex()))
-            if self.status.currentMessage():
-                self.status.show_bar()
+            self.status.show_bar()
         anim.setDuration(200)
         anim.start()
         self._tabbar_anim = anim
@@ -1360,9 +1381,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.setFont(font)
         self.tabs.tabBar().setFont(font)
         self.status.setFont(font)
-        self.timer_menu.setFont(font)
-        self.file_menu.setFont(font)
-        self.delete_menu.setFont(font)
+        self.timer_menu.update_scale(font, self.width())
+        self.file_menu.update_scale(font, self.width())
+        self.delete_menu.update_scale(font, self.width())
         self.timer_widget.update_font(int(16 * self.scale_factor))
         padding = int(4 * self.scale_factor)
         self._style_tabs(padding)
@@ -1372,11 +1393,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             editor.set_scale(self.scale_factor)
             editor.highlighter.rehighlight()
         if self.timer_menu.isVisible() and self.timer_menu.parent():
-            self.timer_menu.setFixedWidth(int(self.width() * 0.33))
+            self.timer_menu.update_scale(font, self.width())
         if self.file_menu.isVisible() and self.file_menu.parent():
-            self.file_menu.setFixedWidth(int(self.width() * 0.5))
+            self.file_menu.update_scale(font, self.width())
         if self.delete_menu.isVisible() and self.delete_menu.parent():
-            self.delete_menu.setFixedWidth(int(self.width() * 0.5))
+            self.delete_menu.update_scale(font, self.width())
         QtCore.QTimer.singleShot(
             0, lambda idx=self.tabs.currentIndex(): self._move_indicator(idx)
         )
