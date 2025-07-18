@@ -12,6 +12,9 @@ import time
 import json
 from PyQt6 import QtWidgets, QtCore, QtGui
 
+# Rodmappen til programmet bruges til at finde data-mappen
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Hjælpefunktion til at vælge en monospace-font.
 # Programmet forsøger JetBrains Mono først og falder
 # tilbage til Noto Sans Mono eller Iosevka hvis de ikke
@@ -408,7 +411,7 @@ class FileMenu(QtWidgets.QWidget):
         self.line.installEventFilter(self)
         self.list.installEventFilter(self)
         self.line.returnPressed.connect(self._emit)
-        self.list.itemActivated.connect(lambda item: self._emit(item.text()))
+        self.list.itemActivated.connect(self._emit)
         self.setMaximumHeight(0)
         self.hide()
 
@@ -420,7 +423,7 @@ class FileMenu(QtWidgets.QWidget):
             self.line.hide()
             self.list.show()
             self.list.clear()
-            data_dir = os.path.join(os.getcwd(), "data")
+            data_dir = os.path.join(ROOT_DIR, "data")
             try:
                 files = [f for f in os.listdir(data_dir) if f.endswith(".md")]
             except FileNotFoundError:
@@ -465,7 +468,7 @@ class FileMenu(QtWidgets.QWidget):
             item = self.list.currentItem()
             if not item:
                 return
-            path = os.path.join("data", item.text())
+            path = os.path.join(ROOT_DIR, "data", item.text())
         else:
             path = self.line.text().strip()
         if path:
@@ -496,6 +499,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.font_family = pick_mono_font()
         base_font = QtGui.QFont(self.font_family, 10)
         self.setFont(base_font)
+
+        # Standard zoom-niveau
+        self.scale_factor = 1.0
 
         # Central widget indeholder timer og faner
         central = QtWidgets.QWidget()
@@ -559,9 +565,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.hemi_button.setToolTip("Skift Hemingway Mode")
         self.hemi_button.clicked.connect(self.toggle_hemingway)
         self.status.addPermanentWidget(self.hemi_button)
-
-        # Først angiv standard skalering
-        self.scale_factor = 1.0
 
         # Load tidligere session eller start med en ny fane
         if not self.load_session():
@@ -639,14 +642,15 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def _generate_filename(self) -> str:
         """Lav et tidsstempel-navn i mappen data."""
-        os.makedirs("data", exist_ok=True)
+        data_dir = os.path.join(ROOT_DIR, "data")
+        os.makedirs(data_dir, exist_ok=True)
         base = time.strftime("%H%M-%d%m%y")
         name = f"{base}.md"
-        path = os.path.join("data", name)
+        path = os.path.join(data_dir, name)
         counter = 1
         while os.path.exists(path):
             name = f"{base}-{counter}.md"
-            path = os.path.join("data", name)
+            path = os.path.join(data_dir, name)
             counter += 1
         return path
 
