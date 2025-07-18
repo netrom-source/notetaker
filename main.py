@@ -53,6 +53,10 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
         self.heading_format.setFontWeight(QtGui.QFont.Weight.Bold)
         self.heading_format.setForeground(QtGui.QBrush(QtGui.QColor("#e0e0e0")))
 
+        # Markdown-symboler (#, *, **) skal tones ned i en grå farve
+        self.marker_format = QtGui.QTextCharFormat()
+        self.marker_format.setForeground(QtGui.QColor("#666"))
+
     def highlightBlock(self, text: str) -> None:
         # **fed**
         bold = QtCore.QRegularExpression(r"\*\*(.+?)\*\*")
@@ -60,6 +64,9 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
         while it.hasNext():
             match = it.next()
             self.setFormat(match.capturedStart(1), match.capturedLength(1), self.bold_format)
+            # farv selve **-markørerne svagt
+            self.setFormat(match.capturedStart(), 2, self.marker_format)
+            self.setFormat(match.capturedEnd() - 2, 2, self.marker_format)
 
         # *kursiv*
         italic = QtCore.QRegularExpression(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)")
@@ -67,6 +74,8 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
         while it.hasNext():
             match = it.next()
             self.setFormat(match.capturedStart(1), match.capturedLength(1), self.italic_format)
+            self.setFormat(match.capturedStart(), 1, self.marker_format)
+            self.setFormat(match.capturedEnd() - 1, 1, self.marker_format)
 
         # overskrifter begynder med et eller flere #
         heading = QtCore.QRegularExpression(r"^(#{1,6})\s+(.*)")
@@ -79,6 +88,8 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
             scale = {1:2.0, 2:1.7, 3:1.5, 4:1.3, 5:1.2, 6:1.1}.get(level, 1)
             fmt.setFontPointSize(base * scale)
             self.setFormat(0, len(text), fmt)
+            # selve # symbolerne nedtones
+            self.setFormat(match.capturedStart(1), level, self.marker_format)
 
 # ----- Hjælpeklasser -----
 
@@ -222,7 +233,7 @@ class TimerWidget(QtWidgets.QLabel):
         self._running = False
         self._remaining = 0
         self._update_label()
-        # Start blink-tilstand i 10 sekunder (20 toggles)
+        # Start blink-tilstand i ca. 5 sekunder (20 toggles)
         self._blinking = True
         self._update_style()
         self._start_blink()
@@ -241,7 +252,7 @@ class TimerWidget(QtWidgets.QLabel):
         group = QtCore.QSequentialAnimationGroup(self)
         group.addAnimation(fade_out)
         group.addAnimation(fade_in)
-        group.setLoopCount(40)  # ca. 10 sekunder
+        group.setLoopCount(20)  # ca. 5 sekunder
         group.finished.connect(self._stop_blink)
         group.start()
         self._blink_anim = group
@@ -252,6 +263,7 @@ class TimerWidget(QtWidgets.QLabel):
         self._text_opacity = 1.0
         self._blink_anim = None
         self._update_style()
+        self.hide()  # skjul timeren helt efter blink
 
     def update_font(self, size: int):
         """Opdater fontstørrelsen og bevar farverne."""
@@ -281,6 +293,7 @@ class TimerMenu(QtWidgets.QWidget):
     """
 
     changed = QtCore.pyqtSignal(int)
+    closed = QtCore.pyqtSignal()
     presets = [30, 3 * 60, 7 * 60, 11 * 60]
 
     def __init__(self, parent=None):
@@ -335,9 +348,13 @@ class TimerMenu(QtWidgets.QWidget):
         anim.setStartValue(end)
         anim.setEndValue(0)
         anim.setDuration(200)
-        anim.finished.connect(lambda: self.setVisible(False))
+        anim.finished.connect(self._after_hide)
         anim.start()
         self._anim = anim
+
+    def _after_hide(self):
+        self.setVisible(False)
+        self.closed.emit()
 
     def _choose(self, seconds: int):
         self.changed.emit(seconds)
@@ -433,7 +450,7 @@ class FileMenu(QtWidgets.QWidget):
             self.list.clear()
             data_dir = os.path.join(ROOT_DIR, "data")
             try:
-                files = [f for f in os.listdir(data_dir) if f.endswith(".md")]
+                files = [f[:-3] for f in os.listdir(data_dir) if f.endswith(".md")]
             except FileNotFoundError:
                 files = []
             for f in files:
@@ -444,6 +461,9 @@ class FileMenu(QtWidgets.QWidget):
         else:
             self.list.hide()
             self.line.show()
+            # vis standardnavn uden filendelse
+            if default.endswith(".md"):
+                default = os.path.splitext(default)[0]
             self.line.setText(default)
             self.line.selectAll()
 
@@ -476,10 +496,13 @@ class FileMenu(QtWidgets.QWidget):
             item = self.list.currentItem()
             if not item:
                 return
-            path = os.path.join(ROOT_DIR, "data", item.text())
+            name = item.text().strip() + ".md"
         else:
-            path = self.line.text().strip()
-        if path:
+            name = self.line.text().strip()
+            if not name.endswith(".md"):
+                name += ".md"
+        if name:
+            path = os.path.join(ROOT_DIR, "data", name)
             self.accepted.emit(path)
         self.hide_menu()
 
@@ -529,6 +552,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Menuen til tidsvalg placeres lige under timeren og er skjult som standard
         self.timer_menu = TimerMenu()
         self.timer_menu.changed.connect(self._timer_selected)
+        self.timer_menu.closed.connect(lambda: self.current_editor().setFocus())
         vlayout.addWidget(self.timer_menu)
 
         # Fanelinje
@@ -541,6 +565,15 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.file_menu.accepted.connect(self._file_action)
         vlayout.addWidget(self.file_menu)
 
+        # Adskillelseslinje over statusbaren
+        sep_layout = QtWidgets.QHBoxLayout()
+        sep_layout.setContentsMargins(10, 0, 10, 0)
+        line = QtWidgets.QFrame()
+        line.setFixedHeight(1)
+        line.setStyleSheet("background:#333;")
+        sep_layout.addWidget(line)
+        vlayout.addLayout(sep_layout)
+
         # Understregning som flyttes når aktiv fane skifter
         self.indicator = QtWidgets.QFrame(self.tabs.tabBar())
         self.indicator.setStyleSheet("background:#556b2f;")
@@ -552,9 +585,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Statuslinjen nederst viser midlertidige beskeder
         self.status = QtWidgets.QStatusBar()
         self.setStatusBar(self.status)
-        # Gør statusbaren mere moderne med afrundede hjørner og skygge
+        # Gør statusbaren mere moderne og med samme farve som editoren
         self.status.setStyleSheet(
-            "QStatusBar{background:rgba(0,0,0,150);color:#ddd;border-radius:6px;padding:4px;}"
+            "QStatusBar{background:#1a1a1a;color:#ddd;border-radius:6px;padding:4px;}"
         )
         shadow = QtWidgets.QGraphicsDropShadowEffect()
         shadow.setBlurRadius(8)
@@ -566,7 +599,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.hemi_button.setCheckable(True)
         hemi_icon = QtGui.QIcon(os.path.join('icons', 'no-backspace.svg'))
         self.hemi_button.setIcon(hemi_icon)
-        self.hemi_button.setIconSize(QtCore.QSize(16, 16))
+        self.hemi_button.setIconSize(QtCore.QSize(24, 24))
         self.hemi_button.setStyleSheet(
             "QToolButton {background:transparent;}"
             "QToolButton:checked {background:#444;}"
@@ -682,7 +715,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         """Opretter en ny tom fane med automatisk filnavn."""
         path = self._generate_filename()
         editor = NoteTab(path)
-        index = self.tabs.addTab(editor, os.path.basename(path))
+        index = self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
         self.tabs.setCurrentIndex(index)
         # Flyt indikatorbjælken til den nye fane
         self._move_indicator(index)
@@ -721,7 +754,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         editor = self.current_editor()
         self.file_menu.setup(
             "save",
-            os.path.basename(editor.file_path) if editor.file_path else "note.md",
+            os.path.splitext(os.path.basename(editor.file_path))[0] if editor.file_path else "note",
         )
         self.file_menu.show_menu()
 
@@ -734,7 +767,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 editor = NoteTab(path)
                 editor.auto_name = False
                 editor.setText(text)
-                index = self.tabs.addTab(editor, os.path.basename(path))
+                index = self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
                 self.tabs.setCurrentIndex(index)
                 self._move_indicator(index)
                 self.status.showMessage(f"Åbnede {path}", 2000)
@@ -742,13 +775,13 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 self.status.showMessage("Filen findes ikke", 2000)
         else:  # save
             editor = self.current_editor()
-            if not path.endswith(".md"):
-                path += ".md"
             with open(path, "w", encoding="utf-8") as f:
                 f.write(editor.toPlainText())
             editor.file_path = path
             editor.auto_name = False
-            self.tabs.setTabText(self.tabs.currentIndex(), os.path.basename(path))
+            name = os.path.splitext(os.path.basename(path))[0]
+            self.tabs.setTabText(self.tabs.currentIndex(), name)
+            self._move_indicator(self.tabs.currentIndex())
             self.status.showMessage(f"Gemt som {path}", 2000)
 
     def close_current_tab(self):
@@ -920,7 +953,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 editor = NoteTab(path)
                 editor.auto_name = False
                 editor.setText(text)
-                self.tabs.addTab(editor, os.path.basename(path))
+                self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
         self.tabs.setCurrentIndex(min(data.get("current", 0), self.tabs.count()-1))
         self.scale_factor = data.get("scale", 1.0)
         self._apply_scale(1)  # anvend nuværende skala
