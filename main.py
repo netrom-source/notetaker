@@ -11,9 +11,17 @@ import os
 import time
 import json
 from PyQt6 import QtWidgets, QtCore, QtGui
+from smbus2 import SMBus
 
-# Rodmappen til programmet bruges til at finde data-mappen
+# Rodmappen til programmet bruges til at finde resourcer som ikoner.
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Sti til hvor noter gemmes. Hvis brugeren har sat ``XDG_DATA_HOME``
+# anvendes den, ellers falder vi tilbage til ``~/.local/share``.
+XDG_DATA_HOME = os.environ.get(
+    "XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share")
+)
+DATA_DIR = os.path.join(XDG_DATA_HOME, "notator")
 
 # Hjælpefunktion til at vælge en monospace-font.
 # Programmet forsøger JetBrains Mono først og falder
@@ -32,6 +40,47 @@ def pick_mono_font() -> str:
         if name in families:
             return name
     return QtGui.QFont().defaultFamily()
+
+# ----- UPS HAT overvågning -----
+
+class UPSMonitor:
+    """Læser batterioplysninger fra Waveshare UPS HAT (E) via I2C.
+
+    Registrene er beskrevet i Waveshares dokumentation. Her anvendes
+    kun de mest relevante: batteriprocent og den anslåede tid tilbage
+    i minutter. Alle adresser er forudsat på I2C-adressen ``0x2d``.
+    """
+
+    ADDRESS = 0x2D
+    REG_PERCENT_L = 0x24
+    REG_PERCENT_H = 0x25
+    REG_TIME_L = 0x28  # resterende afladningstid i minutter
+    REG_TIME_H = 0x29
+
+    def __init__(self, bus: int = 1) -> None:
+        self.bus_num = bus
+        try:
+            self.bus = SMBus(bus)
+        except FileNotFoundError:
+            # I2C er ikke aktiveret eller findes ikke
+            self.bus = None
+
+    def _read_word(self, reg_l: int, reg_h: int) -> int:
+        """Læs to registre og kombiner til et 16-bit tal."""
+        if not self.bus:
+            raise OSError("Ingen I2C bus")
+        low = self.bus.read_byte_data(self.ADDRESS, reg_l)
+        high = self.bus.read_byte_data(self.ADDRESS, reg_h)
+        return (high << 8) | low
+
+    def status(self) -> tuple[int | None, int | None]:
+        """Returner (procent, minutter) eller (None, None) ved fejl."""
+        try:
+            pct = self._read_word(self.REG_PERCENT_L, self.REG_PERCENT_H)
+            mins = self._read_word(self.REG_TIME_L, self.REG_TIME_H)
+        except OSError:
+            return None, None
+        return pct, mins
 
 # Fremhæv Markdown under skrivning
 class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
@@ -479,7 +528,7 @@ class FileMenu(QtWidgets.QWidget):
             self.line.hide()
             self.list.show()
             self.list.clear()
-            data_dir = os.path.join(ROOT_DIR, "data")
+            data_dir = DATA_DIR
             try:
                 files = [f[:-3] for f in os.listdir(data_dir) if f.endswith(".md")]
             except FileNotFoundError:
@@ -537,7 +586,7 @@ class FileMenu(QtWidgets.QWidget):
             if not name.endswith(".md"):
                 name += ".md"
         if name:
-            path = os.path.join(ROOT_DIR, "data", name)
+            path = os.path.join(DATA_DIR, name)
             self.accepted.emit(path)
         self.hide_menu()
 
@@ -835,6 +884,18 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.hemi_button.clicked.connect(self.toggle_hemingway)
         self.status.addPermanentWidget(self.hemi_button)
 
+        # Label til batteristatus lige efter Hemingway-knappen
+        self.battery_label = QtWidgets.QLabel()
+        self.battery_label.setStyleSheet("color:#ddd;padding-left:6px;")
+        self.status.addPermanentWidget(self.battery_label)
+
+        # Opsæt overvågning af UPS HAT'en
+        self.ups = UPSMonitor()
+        self._battery_timer = QtCore.QTimer()
+        self._battery_timer.timeout.connect(self.update_battery_status)
+        self._battery_timer.start(30000)  # opdater hvert 30. sekund
+        self.update_battery_status()
+
         # Load tidligere session eller start med en ny fane
         if not self.load_session():
             self.new_tab()
@@ -879,6 +940,17 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             sc = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
             sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
             sc.activated.connect(slot)
+
+    def update_battery_status(self) -> None:
+        """Hent data fra UPS HAT'en og opdater labelen."""
+        pct, mins = self.ups.status()
+        if pct is None:
+            self.battery_label.setText("UPS ikke fundet")
+            return
+        hours, minutes = divmod(mins, 60)
+        self.battery_label.setText(
+            f"Batteri: {pct}% ({hours}t {minutes}m tilbage)"
+        )
 
     def eventFilter(self, obj, event):
         """Hold indikatorbjælken synkroniseret ved resize."""
@@ -933,16 +1005,15 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     # ----- Fanehåndtering -----
 
     def _generate_filename(self) -> str:
-        """Lav et tidsstempel-navn i mappen data."""
-        data_dir = os.path.join(ROOT_DIR, "data")
-        os.makedirs(data_dir, exist_ok=True)
+        """Lav et tidsstempel-navn i mappen til brugerdata."""
+        os.makedirs(DATA_DIR, exist_ok=True)
         base = time.strftime("%H%M-%d%m%y")
         name = f"{base}.md"
-        path = os.path.join(data_dir, name)
+        path = os.path.join(DATA_DIR, name)
         counter = 1
         while os.path.exists(path):
             name = f"{base}-{counter}.md"
-            path = os.path.join(data_dir, name)
+            path = os.path.join(DATA_DIR, name)
             counter += 1
         return path
 
