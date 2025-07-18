@@ -95,14 +95,17 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
             scale = {1:2.0, 2:1.7, 3:1.5, 4:1.3, 5:1.2, 6:1.1}.get(level, 1)
             fmt.setFontPointSize(base * scale)
             self.setFormat(0, len(text), fmt)
-            # selve # symbolerne nedtones
-            self.setFormat(match.capturedStart(1), level, self.marker_format)
+            marker_fmt = QtGui.QTextCharFormat(fmt)
+            marker_fmt.setForeground(self.marker_format.foreground())
+            self.setFormat(match.capturedStart(1), level, marker_fmt)
 
-        bullet = QtCore.QRegularExpression(r"^\s*\*\s+(.*)")
+        bullet = QtCore.QRegularExpression(r"^(\s*\*\s+)")
         match = bullet.match(text)
         if match.hasMatch():
-            self.setFormat(match.capturedStart(), 1, self.bullet_format)
-            self.setFormat(match.capturedStart(1), len(match.captured(1)), QtGui.QTextCharFormat())
+            bullet_len = len(match.captured(1))
+            fmt = QtGui.QTextCharFormat()
+            fmt.setForeground(self.bullet_format.foreground())
+            self.setFormat(match.capturedStart(1), bullet_len, fmt)
 
         quote = QtCore.QRegularExpression(r"^>\s+(.*)")
         match = quote.match(text)
@@ -768,12 +771,14 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
         # Adskillelseslinje over statusbaren
         sep_layout = QtWidgets.QHBoxLayout()
-        sep_layout.setContentsMargins(10, 0, 10, 0)
+        sep_layout.setContentsMargins(20, 8, 20, 8)
         line = QtWidgets.QFrame()
         line.setFixedHeight(1)
-        line.setStyleSheet("background:#444;")
+        line.setStyleSheet(
+            "background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #555, stop:1 #333);"
+        )
         shadow = QtWidgets.QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(6)
+        shadow.setBlurRadius(8)
         shadow.setOffset(0, -2)
         line.setGraphicsEffect(shadow)
         sep_layout.addWidget(line)
@@ -792,7 +797,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(self.status)
         # Gør statusbaren mere moderne og med samme farve som editoren
         self.status.setStyleSheet(
-            "QStatusBar{background:#1a1a1a;color:#ddd;border-radius:6px;padding:4px;}"
+            "QStatusBar{background:#1a1a1a;color:#ddd;border:none;border-radius:6px;padding:4px;}"
         )
         shadow = QtWidgets.QGraphicsDropShadowEffect()
         shadow.setBlurRadius(8)
