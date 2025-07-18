@@ -16,7 +16,10 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 - Fanelinjen viser en grøn bjælke under den aktive fane
 - Live-rendering af Markdown-overskrifter direkte i teksten
 - Timerens menu glider ned under tidtagningen og vælgeren kan betjenes med tastatur
-- Alle tekster bruger fonten JetBrains Mono
+- Alle tekster bruger JetBrains Mono eller nærmeste tilgængelige monospace-font
+- Timer-menuen kan lukkes med `Esc` og bevarer fokus i menuens valg
+- Tabbar og timer-menu skjules med glidende animationer
+- Statuslinjen har afrundede hjørner og skygge for bedre læsbarhed
 
 ## Tastaturgenveje
 | Handling | Genvej |
@@ -48,4 +51,4 @@ Programmet forsøger at starte i fuldskærm og genskaber automatisk tidligere å
 
 ## Ændringer
 - 18-07-2025: Filnavnet kan nu ændres ved første gem, Hemingway-knappen er flyttet til statuslinjen og timer-menuen er integreret med slide-animation.
-
+- 18-07-2025: Forbedret timer-navigation, fontvalg med fallback og moderne statuslinje.

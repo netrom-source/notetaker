@@ -12,6 +12,18 @@ import time
 import json
 from PyQt6 import QtWidgets, QtCore, QtGui
 
+# Hjælpefunktion til at vælge en monospace-font.
+# Programmet forsøger JetBrains Mono først og falder
+# tilbage til Noto Sans Mono eller Iosevka hvis de ikke
+# findes på systemet. Dermed sikres ensartet udseende
+# selv på minimalistiske installationer som Raspberry Pi.
+def pick_mono_font() -> str:
+    db = QtGui.QFontDatabase()
+    for name in ["JetBrains Mono", "Noto Sans Mono", "Iosevka"]:
+        if name in db.families():
+            return name
+    return QtGui.QFont().defaultFamily()
+
 # Fremhæv Markdown under skrivning
 class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
     """En simpel highlighter der viser Markdown-formatering direkte.
@@ -72,17 +84,23 @@ class NoteTab(QtWidgets.QTextEdit):
         # skriver tilbage til den gamle sti.
         self.auto_name = True
         self.hemingway = False  # Hvis sand, blokeres sletning og navigation bagud
-        # Sammen med resten af programmet anvendes fonten JetBrains Mono for at
-        # skabe et ensartet udtryk på tværs af widgets.
-        self.setFont(QtGui.QFont("JetBrains Mono", 10))
+        # Brug den skrifttype som ``pick_mono_font`` finder. Dermed er vi
+        # robuste overfor systemer hvor JetBrains Mono ikke er installeret.
+        self.setFont(QtGui.QFont(pick_mono_font(), 10))
         # Mørk baggrund og små marginer i siderne
         self.setStyleSheet("background:#1a1a1a;color:#e6e6e6")
-        self.setViewportMargins(24, 0, 24, 0)
+        self.margin = 24
+        self.setViewportMargins(self.margin, 0, self.margin, 0)
         self.highlighter = MarkdownHighlighter(self.document())
         # Auto-gem hvert 10. sekund
         self.auto_timer = QtCore.QTimer(self)
         self.auto_timer.timeout.connect(self.auto_save)
         self.auto_timer.start(10000)
+
+    def set_scale(self, factor: float):
+        """Opdater margener efter zoom."""
+        m = int(self.margin * factor)
+        self.setViewportMargins(m, 0, m, 0)
 
     def auto_save(self):
         """Gem indholdet i filen uden notifikation."""
@@ -115,26 +133,25 @@ class TimerWidget(QtWidgets.QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        # Farverne matcher programmets mørke tema. Når timeren er aktiv
-        # fremhæves baggrunden med en støvet grøn nuance.
-        self.setStyleSheet(
-            "background:#1a1a1a;color:#e6e6e6;font-size: 16pt; padding: 4px;"
-        )
+        # Gem fontstørrelse og om timeren kører, så stilen kan opdateres
+        # uden at miste farven ved zoom.
+        self._font_size = 16
+        self._running = False
         self._duration = 0
         self._remaining = 0
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self._update_time)
         self.hide()  # Timeren er skjult indtil den startes
+        self._update_style()
 
     def start(self, seconds: int):
         """Start en nedtælling på det angivne antal sekunder."""
         self._duration = seconds
         self._remaining = seconds
         self._update_label()
-        # Giv visuel feedback på at en timer kører
-        self.setStyleSheet(
-            "background:#556b2f;color:#e6e6e6;font-size: 16pt; padding: 4px;"
-        )
+        # Vis at timeren er aktiv med grøn baggrund
+        self._running = True
+        self._update_style()
         self.show()
         self._timer.start(1000)  # opdater hvert sekund
 
@@ -142,10 +159,9 @@ class TimerWidget(QtWidgets.QLabel):
         """Stop og nulstil timeren."""
         self._timer.stop()
         self.hide()
-        # Fjern markeringen når timeren ikke kører
-        self.setStyleSheet(
-            "background:#1a1a1a;color:#e6e6e6;font-size: 16pt; padding: 4px;"
-        )
+        # Markér at timeren er stoppet
+        self._running = False
+        self._update_style()
 
     def _update_time(self):
         self._remaining -= 1
@@ -158,6 +174,18 @@ class TimerWidget(QtWidgets.QLabel):
     def _update_label(self):
         mins, secs = divmod(self._remaining, 60)
         self.setText(f"{mins:02d}:{secs:02d}")
+
+    def update_font(self, size: int):
+        """Opdater fontstørrelsen og bevar farverne."""
+        self._font_size = size
+        self._update_style()
+
+    def _update_style(self):
+        """Anvend stylesheet afhængigt af om timeren kører."""
+        bg = "#556b2f" if self._running else "#1a1a1a"
+        self.setStyleSheet(
+            f"background:{bg};color:#e6e6e6;font-size:{self._font_size}pt; padding:4px;"
+        )
 
 class TimerMenu(QtWidgets.QWidget):
     """En nedfældet menu hvor brugeren vælger timerens længde.
@@ -180,10 +208,11 @@ class TimerMenu(QtWidgets.QWidget):
             btn.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
             btn.clicked.connect(lambda _, s=seconds: self._choose(s))
             btn.setAutoDefault(False)
+            btn.installEventFilter(self)
             self.layout().addWidget(btn)
             self.buttons.append(btn)
         self.custom_input = QtWidgets.QLineEdit()
-        self.custom_input.setPlaceholderText("Sekunder...")
+        self.custom_input.setPlaceholderText("min eller tal+s")
         self.custom_input.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.custom_input.returnPressed.connect(self._custom)
         self.custom_input.installEventFilter(self)
@@ -221,22 +250,47 @@ class TimerMenu(QtWidgets.QWidget):
         self.hide_menu()
 
     def _custom(self):
+        text = self.custom_input.text().strip().lower()
         try:
-            seconds = int(self.custom_input.text())
+            if text.endswith("s"):
+                seconds = int(text[:-1])
+            else:
+                seconds = int(text) * 60
         except ValueError:
-            QtWidgets.QMessageBox.warning(self, "Ugyldigt tal",
-                                          "Indtast et heltal i sekunder")
+            QtWidgets.QMessageBox.warning(
+                self, "Ugyldigt format",
+                "Indtast et tal (minutter) eller med 's' for sekunder")
             return
         self.changed.emit(seconds)
         self.hide_menu()
 
     def eventFilter(self, obj, event):
-        if obj is self.custom_input and event.type() == QtCore.QEvent.Type.KeyPress:
-            if event.key() == QtCore.Qt.Key.Key_Up:
-                self.buttons[-1].setFocus()
+        if event.type() == QtCore.QEvent.Type.KeyPress:
+            if event.key() == QtCore.Qt.Key.Key_Escape:
+                self.hide_menu()
                 return True
-            if event.key() == QtCore.Qt.Key.Key_Down:
-                return True
+            # Navigér op/ned uden at forlade menuen
+            if obj in self.buttons:
+                idx = self.buttons.index(obj)
+                if event.key() == QtCore.Qt.Key.Key_Down:
+                    if idx == len(self.buttons) - 1:
+                        self.custom_input.setFocus()
+                    else:
+                        self.buttons[idx + 1].setFocus()
+                    return True
+                if event.key() == QtCore.Qt.Key.Key_Up:
+                    if idx == 0:
+                        self.custom_input.setFocus()
+                    else:
+                        self.buttons[idx - 1].setFocus()
+                    return True
+            if obj is self.custom_input:
+                if event.key() == QtCore.Qt.Key.Key_Up:
+                    self.buttons[-1].setFocus()
+                    return True
+                if event.key() == QtCore.Qt.Key.Key_Down:
+                    self.buttons[0].setFocus()
+                    return True
         return super().eventFilter(obj, event)
 
     @staticmethod
@@ -256,8 +310,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("Notator")
         self.resize(800, 600)
-        # Global font for hele applikationen
-        base_font = QtGui.QFont("JetBrains Mono", 10)
+        # Global font for hele applikationen. ``pick_mono_font`` sikrer
+        # at der vælges en monospace-font som faktisk findes.
+        self.font_family = pick_mono_font()
+        base_font = QtGui.QFont(self.font_family, 10)
         self.setFont(base_font)
 
         # Central widget indeholder timer og faner
@@ -295,6 +351,14 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Statuslinjen nederst viser midlertidige beskeder
         self.status = QtWidgets.QStatusBar()
         self.setStatusBar(self.status)
+        # Gør statusbaren mere moderne med afrundede hjørner og skygge
+        self.status.setStyleSheet(
+            "QStatusBar{background:rgba(0,0,0,150);color:#ddd;border-radius:6px;padding:4px;}"
+        )
+        shadow = QtWidgets.QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(8)
+        shadow.setOffset(0, 0)
+        self.status.setGraphicsEffect(shadow)
 
         # Hemingway-knappen lægges til højre i statuslinien
         self.hemi_button = QtWidgets.QToolButton()
@@ -345,13 +409,18 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl++"), self, self.zoom_in)
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+-"), self, self.zoom_out)
 
-    def _style_tabs(self):
-        """Anvend minimalistisk udseende på fanelinjen."""
+    def _style_tabs(self, padding: int = 4):
+        """Stil opsætningen af fanelinjen.
+
+        ``padding`` justeres efter zoom-niveau for at holde
+        proportionerne ens. Den grå linje over fanerne fjernes
+        ved at fjerne alle kanter.
+        """
         bar = self.tabs.tabBar()
         bar.setDrawBase(False)
         self.tabs.setDocumentMode(True)
         self.tabs.setStyleSheet(
-            "QTabBar::tab {background:transparent;padding:4px 12px;color:#aaa;}"
+            f"QTabBar::tab {{background:transparent;padding:{padding}px {padding*3}px;color:#aaa;border:none;}}"
             "QTabBar::tab:selected {color:#fff;}"
             "QTabWidget::pane {border:none;}"
         )
@@ -396,7 +465,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Flyt indikatorbjælken til den nye fane
         self._move_indicator(index)
         editor.auto_save()  # gem straks
-        self._apply_scale(1)  # anvend nuværende skala
+        editor.setFont(QtGui.QFont(self.font_family, max(6, round(10 * self.scale_factor))))
+        editor.set_scale(self.scale_factor)
         self.status.showMessage("Ny note oprettet", 2000)
 
     def open_file(self):
@@ -467,9 +537,24 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             self._move_indicator(index + 1)
 
     def toggle_tabbar(self):
-        """Skjul eller vis fanelinjen."""
+        """Skjul eller vis fanelinjen med slide-animation."""
         bar = self.tabs.tabBar()
-        bar.setVisible(not bar.isVisible())
+        end = bar.sizeHint().height()
+        anim = QtCore.QPropertyAnimation(bar, b"maximumHeight")
+        if bar.isVisible():
+            anim.setStartValue(bar.height())
+            anim.setEndValue(0)
+            anim.finished.connect(lambda: bar.setVisible(False))
+            self.indicator.hide()
+        else:
+            bar.setVisible(True)
+            anim.setStartValue(0)
+            anim.setEndValue(end)
+            self.indicator.show()
+            anim.finished.connect(lambda: self._move_indicator(self.tabs.currentIndex()))
+        anim.setDuration(200)
+        anim.start()
+        self._tabbar_anim = anim
 
     # ----- Skalering -----
 
@@ -482,14 +567,18 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     def _apply_scale(self, factor: float):
         self.scale_factor *= factor
         font_size = max(6, round(10 * self.scale_factor))
-        font = QtGui.QFont("JetBrains Mono", font_size)
+        font = QtGui.QFont(self.font_family, font_size)
         self.setFont(font)
         self.tabs.tabBar().setFont(font)
         self.status.setFont(font)
-        self.timer_widget.setStyleSheet(f"font-size: {int(16 * self.scale_factor)}pt; padding: 4px;")
+        self.timer_widget.update_font(int(16 * self.scale_factor))
+        padding = int(4 * self.scale_factor)
+        self._style_tabs(padding)
+        self._move_indicator(self.tabs.currentIndex())
         for i in range(self.tabs.count()):
             editor = self.tabs.widget(i)
             editor.setFont(font)
+            editor.set_scale(self.scale_factor)
 
     # ----- Timerfunktioner -----
 
