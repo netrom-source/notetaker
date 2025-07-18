@@ -13,8 +13,15 @@ import json
 from PyQt6 import QtWidgets, QtCore, QtGui
 from smbus2 import SMBus
 
-# Rodmappen til programmet bruges til at finde data-mappen
+# Rodmappen til programmet bruges til at finde resourcer som ikoner.
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Sti til hvor noter gemmes. Hvis brugeren har sat ``XDG_DATA_HOME``
+# anvendes den, ellers falder vi tilbage til ``~/.local/share``.
+XDG_DATA_HOME = os.environ.get(
+    "XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share")
+)
+DATA_DIR = os.path.join(XDG_DATA_HOME, "notator")
 
 # Hjælpefunktion til at vælge en monospace-font.
 # Programmet forsøger JetBrains Mono først og falder
@@ -534,7 +541,7 @@ class FileMenu(QtWidgets.QWidget):
             self.line.hide()
             self.list.show()
             self.list.clear()
-            data_dir = os.path.join(ROOT_DIR, "data")
+            data_dir = DATA_DIR
             try:
                 files = [f[:-3] for f in os.listdir(data_dir) if f.endswith(".md")]
             except FileNotFoundError:
@@ -594,7 +601,7 @@ class FileMenu(QtWidgets.QWidget):
             if not name.endswith(".md"):
                 name += ".md"
         if name:
-            path = os.path.join(ROOT_DIR, "data", name)
+            path = os.path.join(DATA_DIR, name)
             self.accepted.emit(path)
         self.hide_menu()
 
@@ -1206,16 +1213,15 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     # ----- Fanehåndtering -----
 
     def _generate_filename(self) -> str:
-        """Lav et tidsstempel-navn i mappen data."""
-        data_dir = os.path.join(ROOT_DIR, "data")
-        os.makedirs(data_dir, exist_ok=True)
+        """Lav et tidsstempel-navn i mappen til brugerdata."""
+        os.makedirs(DATA_DIR, exist_ok=True)
         base = time.strftime("%H%M-%d%m%y")
         name = f"{base}.md"
-        path = os.path.join(data_dir, name)
+        path = os.path.join(DATA_DIR, name)
         counter = 1
         while os.path.exists(path):
             name = f"{base}-{counter}.md"
-            path = os.path.join(data_dir, name)
+            path = os.path.join(DATA_DIR, name)
             counter += 1
         return path
 

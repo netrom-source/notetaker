@@ -5,7 +5,8 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 ## Funktioner
 - Mørk brugerflade og Markdown-highlighting direkte i editoren
 - Automatisk genskabelse af seneste session med faner og zoomniveau
-- Nye filer navngives automatisk med tidsstempel og gemmes i `data/`
+- Nye filer navngives automatisk med tidsstempel og gemmes i
+  `~/.local/share/notator/` (eller `$XDG_DATA_HOME/notator`)
 - Første gang der gemmes kan filen omdøbes via `Ctrl+S`
 - Auto-gem af åbne noter hvert tiende sekund
 - Indbygget timer med presets (30 sek, 3, 7 og 11 min) og brugerdefineret tid
