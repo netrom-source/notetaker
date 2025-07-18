@@ -113,6 +113,18 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
             self.setFormat(0, len(text), self.quote_format)
             self.setFormat(0, 1, self.marker_format)
 
+        bullet = QtCore.QRegularExpression(r"^\s*\*\s+(.*)")
+        match = bullet.match(text)
+        if match.hasMatch():
+            self.setFormat(match.capturedStart(), 1, self.bullet_format)
+            self.setFormat(match.capturedStart(1), len(match.captured(1)), QtGui.QTextCharFormat())
+
+        quote = QtCore.QRegularExpression(r"^>\s+(.*)")
+        match = quote.match(text)
+        if match.hasMatch():
+            self.setFormat(0, len(text), self.quote_format)
+            self.setFormat(0, 1, self.marker_format)
+
 # ----- Hjælpeklasser -----
 
 class NoteTab(QtWidgets.QTextEdit):
