@@ -16,12 +16,11 @@ from smbus2 import SMBus
 # Rodmappen til programmet bruges til at finde resourcer som ikoner.
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Sti til hvor noter gemmes. Hvis brugeren har sat ``XDG_DATA_HOME``
-# anvendes den, ellers falder vi tilbage til ``~/.local/share``.
-XDG_DATA_HOME = os.environ.get(
-    "XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share")
-)
-DATA_DIR = os.path.join(XDG_DATA_HOME, "notator")
+# Sti til hvor noter gemmes. Altid i ``~/data`` så det er let at finde
+# filerne uafhængigt af hvor programmet ligger.
+DATA_DIR = os.path.join(os.path.expanduser("~"), "data")
+# Session-information lægges samme sted så den genskabes korrekt.
+SESSION_FILE = os.path.join(DATA_DIR, "session.json")
 
 # Hjælpefunktion til at vælge en monospace-font.
 # Programmet forsøger JetBrains Mono først og falder
@@ -369,6 +368,10 @@ class TimerMenu(QtWidgets.QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
         # Kun fokusfarve defineres her -- selve knapstilen sættes globalt
@@ -493,6 +496,7 @@ class TimerMenu(QtWidgets.QWidget):
             child.setFont(font)
         if self.isVisible() and self.parent():
             self.setFixedWidth(int(width * 0.33))
+            self.setMaximumHeight(self.sizeHint().height())
 
     @staticmethod
     def _fmt(seconds: int) -> str:
@@ -625,6 +629,11 @@ class FileMenu(QtWidgets.QWidget):
             child.setFont(font)
         if self.isVisible() and self.parent():
             self.setFixedWidth(int(width * 0.5))
+            self.setMaximumHeight(self.sizeHint().height())
+            self.setMaximumHeight(self.sizeHint().height())
+            self.setMaximumHeight(self.sizeHint().height())
+            self.setMaximumHeight(self.sizeHint().height())
+            self.setMaximumHeight(self.sizeHint().height())
 
 
 class DeleteMenu(QtWidgets.QWidget):
@@ -662,6 +671,10 @@ class DeleteMenu(QtWidgets.QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
         self._index = 0
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(10, 10, 10, 10)
@@ -697,6 +710,9 @@ class DeleteMenu(QtWidgets.QWidget):
         ]
         for inp in self.inputs:
             inp.hide()
+            inp.setStyleSheet(
+                "QLineEdit{border:1px solid #666;background:#1a1a1a;color:#ddd;}"
+            )
             inp.textChanged.connect(self._validate)
             inp.installEventFilter(self)
             self.layout().addWidget(inp)
@@ -831,6 +847,7 @@ class DeleteMenu(QtWidgets.QWidget):
             child.setFont(font)
         if self.isVisible() and self.parent():
             self.setFixedWidth(int(width * 0.5))
+            self.setMaximumHeight(self.sizeHint().height())
 
 
 class PowerMenu(QtWidgets.QWidget):
@@ -1017,13 +1034,13 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.file_menu = FileMenu()
         self.file_menu.accepted.connect(self._file_action)
         self.file_menu.closed.connect(lambda: self.current_editor().setFocus())
-        vlayout.addWidget(self.file_menu)
+        vlayout.addWidget(self.file_menu, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
 
         # Menu til sletning med haiku-beskyttelse
         self.delete_menu = DeleteMenu()
         self.delete_menu.confirmed.connect(self._delete_current_file)
         self.delete_menu.closed.connect(lambda: self.current_editor().setFocus())
-        vlayout.addWidget(self.delete_menu)
+        vlayout.addWidget(self.delete_menu, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
 
         # Menu som vises ved at holde Escape nede
         self.power_menu = PowerMenu(central)
@@ -1099,6 +1116,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Genveje
         self._setup_shortcuts()
 
+        # Lyt globalt efter tastetryk for bl.a. Escape-hold
+        QtWidgets.QApplication.instance().installEventFilter(self)
+
         # Efter vinduet er vist skal indikatorbjælken justeres
         QtCore.QTimer.singleShot(0, lambda: self._move_indicator(self.tabs.currentIndex()))
         # Sørg for fokus i skrivefeltet ved opstart
@@ -1124,6 +1144,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             ("Ctrl+Alt+.", self.toggle_tabbar),
             ("Ctrl++", self.zoom_in),
             ("Ctrl+-", self.zoom_out),
+            ("Ctrl+Escape", self.power_menu.show_menu),
         ]
         for seq, slot in shortcuts:
             sc = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
@@ -1142,7 +1163,14 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         )
 
     def eventFilter(self, obj, event):
-        """Hold indikatorbjælken synkroniseret ved resize."""
+        """Overvåg nøgler og tabbar for at holde layoutet stabilt."""
+        if event.type() == QtCore.QEvent.Type.KeyPress and event.key() == QtCore.Qt.Key.Key_Escape:
+            menus = [self.file_menu, self.delete_menu, self.timer_menu, self.power_menu]
+            if not any(m.isVisible() for m in menus):
+                self.esc_timer.start(600)
+        if event.type() == QtCore.QEvent.Type.KeyRelease and event.key() == QtCore.Qt.Key.Key_Escape:
+            self.esc_timer.stop()
+
         if obj is self.tabs.tabBar() and event.type() in (
             QtCore.QEvent.Type.Resize,
             QtCore.QEvent.Type.Show,
@@ -1178,6 +1206,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             "QTabBar::tab:selected {color:#fff;}"
             "QTabWidget::pane {border:none;background:#1a1a1a;}"
         )
+        if bar.isVisible():
+            bar.setMaximumHeight(bar.sizeHint().height())
 
     def _move_indicator(self, index: int):
         """Flyt den grønne bjælke under den aktive fane med animation."""
@@ -1475,12 +1505,14 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         det nuværende zoom-niveau. Ved næste opstart kan ``load_session``
         bruge disse oplysninger til at genskabe arbejdsfladen.
         """
+        os.makedirs(DATA_DIR, exist_ok=True)
         data = {
             "files": [self.tabs.widget(i).file_path for i in range(self.tabs.count())],
             "current": self.tabs.currentIndex(),
             "scale": self.scale_factor,
+            "size": [self.width(), self.height()],
         }
-        with open("session.json", "w", encoding="utf-8") as f:
+        with open(SESSION_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f)
 
     def load_session(self) -> bool:
@@ -1492,7 +1524,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         åbner den hvis den findes, og genopretter også zoom-niveauet.
         """
         try:
-            with open("session.json", "r", encoding="utf-8") as f:
+            with open(SESSION_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except FileNotFoundError:
             return False
@@ -1509,6 +1541,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
         self.tabs.setCurrentIndex(min(data.get("current", 0), self.tabs.count()-1))
         self.scale_factor = data.get("scale", 1.0)
+        size = data.get("size")
+        if size:
+            self.resize(*size)
         self._apply_scale(1)  # anvend nuværende skala
         self._move_indicator(self.tabs.currentIndex())
         return True
