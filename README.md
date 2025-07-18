@@ -13,7 +13,7 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 - Knappen til Hemingway Mode findes i statuslinjen
 - UI-skalering med `Ctrl++` og `Ctrl+-`
 - Fanelinje kan skjules med `Ctrl+Alt+.`
-- Fanelinjen viser en grøn bjælke under den aktive fane
+- Fanelinjen viser en mørk grågrøn bjælke under den aktive fane
 - Live-rendering af Markdown-overskrifter direkte i teksten
 - Timerens menu glider ned under tidtagningen og vælgeren kan betjenes med tastatur
 - Valgte preset i timer-menuen fremhæves tydeligt ved navigation med piletaster
@@ -47,7 +47,8 @@ Kør programmet med:
 ```bash
 python3 main.py
 ```
-Programmet forsøger at starte i fuldskærm og genskaber automatisk tidligere åbnede noter.
+Programmet starter i frameless fuldskærm og genskaber automatisk tidligere åbnede noter.
+
 
 ## Begrænsninger
 - Programmet kræver at Qt-platform pluginnet `xcb` er installeret for at køre under X11. På nogle systemer kan dette mangle og forhindre opstart.
