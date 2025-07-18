@@ -400,20 +400,26 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def _setup_shortcuts(self):
         """Opretter tastaturgenveje."""
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+N"), self, self.new_tab)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+O"), self, self.open_file)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+S"), self, self.save_file)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Shift+S"), self, self.save_file_as)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+W"), self, self.close_current_tab)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Q"), self, self.close)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+,"), self, self.prev_tab)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+."), self, self.next_tab)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+T"), self, self.toggle_timer)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+R"), self, self.reset_or_stop_timer)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+H"), self, self.toggle_hemingway)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Alt+."), self, self.toggle_tabbar)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl++"), self, self.zoom_in)
-        QtGui.QShortcut(QtGui.QKeySequence("Ctrl+-"), self, self.zoom_out)
+        shortcuts = [
+            ("Ctrl+N", self.new_tab),
+            ("Ctrl+O", self.open_file),
+            ("Ctrl+S", self.save_file),
+            ("Ctrl+Shift+S", self.save_file_as),
+            ("Ctrl+W", self.close_current_tab),
+            ("Ctrl+Q", self.close),
+            ("Ctrl,", self.prev_tab),
+            ("Ctrl.", self.next_tab),
+            ("Ctrl+T", self.toggle_timer),
+            ("Ctrl+R", self.reset_or_stop_timer),
+            ("Ctrl+H", self.toggle_hemingway),
+            ("Ctrl+Alt+.", self.toggle_tabbar),
+            ("Ctrl++", self.zoom_in),
+            ("Ctrl+-", self.zoom_out),
+        ]
+        for seq, slot in shortcuts:
+            sc = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
+            sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
+            sc.activated.connect(slot)
 
     def _style_tabs(self, padding: int = 4):
         """Stil opsætningen af fanelinjen.
