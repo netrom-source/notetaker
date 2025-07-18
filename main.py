@@ -57,6 +57,13 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
         self.marker_format = QtGui.QTextCharFormat()
         self.marker_format.setForeground(QtGui.QColor("#666"))
 
+        self.quote_format = QtGui.QTextCharFormat()
+        self.quote_format.setForeground(QtGui.QColor("#999"))
+        self.quote_format.setFontItalic(True)
+
+        self.bullet_format = QtGui.QTextCharFormat()
+        self.bullet_format.setForeground(QtGui.QColor("#bbb"))
+
     def highlightBlock(self, text: str) -> None:
         # **fed**
         bold = QtCore.QRegularExpression(r"\*\*(.+?)\*\*")
@@ -90,6 +97,18 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
             self.setFormat(0, len(text), fmt)
             # selve # symbolerne nedtones
             self.setFormat(match.capturedStart(1), level, self.marker_format)
+
+        bullet = QtCore.QRegularExpression(r"^\s*\*\s+(.*)")
+        match = bullet.match(text)
+        if match.hasMatch():
+            self.setFormat(match.capturedStart(), 1, self.bullet_format)
+            self.setFormat(match.capturedStart(1), len(match.captured(1)), QtGui.QTextCharFormat())
+
+        quote = QtCore.QRegularExpression(r"^>\s+(.*)")
+        match = quote.match(text)
+        if match.hasMatch():
+            self.setFormat(0, len(text), self.quote_format)
+            self.setFormat(0, 1, self.marker_format)
 
 # ----- Hjælpeklasser -----
 
@@ -303,7 +322,7 @@ class TimerMenu(QtWidgets.QWidget):
         # Udseende for knapper når de har fokus
         self.setStyleSheet(
             "QPushButton {border:none;padding:4px;color:#ddd;}"
-            "QPushButton:focus {background:#444;}"
+            "QPushButton:focus {background:#444;border:none;}"
         )
         self.buttons = []
         for seconds in self.presets:
@@ -332,6 +351,8 @@ class TimerMenu(QtWidgets.QWidget):
     def show_menu(self):
         """Vis menuen med en let slide-animation."""
         self.setVisible(True)
+        if self.parent():
+            self.setFixedWidth(int(self.parent().width() * 0.33))
         end = self.sizeHint().height()
         anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
         anim.setStartValue(0)
@@ -564,27 +585,54 @@ class DeleteMenu(QtWidgets.QWidget):
         self.haiku_label.setWordWrap(True)
         self.layout().addWidget(self.haiku_label)
 
+        self.instruction = QtWidgets.QLabel(
+            "Hvis du virkelig vil slette denne fil, skriv da et haiku om fortrydelse eller afslutning."
+        )
+        self.instruction.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.instruction.setWordWrap(True)
+        self.instruction.hide()
+        self.layout().addWidget(self.instruction)
+
         self.inputs = [QtWidgets.QLineEdit() for _ in range(3)]
+        placeholders = [
+            "5 stavelser",
+            "7 stavelser",
+            "5 stavelser",
+        ]
         for inp in self.inputs:
             inp.hide()
             inp.textChanged.connect(self._validate)
             self.layout().addWidget(inp)
+        for inp, ph in zip(self.inputs, placeholders):
+            inp.setPlaceholderText(ph)
         self.inputs[-1].returnPressed.connect(self._confirm)
 
-        btn_row = QtWidgets.QHBoxLayout()
-        self.next_btn = QtWidgets.QPushButton("Slet alligevel")
+        btn_row = QtWidgets.QVBoxLayout()
+        self.confirm_btn = QtWidgets.QPushButton("Slet")
+        self.confirm_btn.setEnabled(False)
+        self.confirm_btn.clicked.connect(self._confirm)
+        self.confirm_btn.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
+        self.next_btn = QtWidgets.QPushButton("Slet")
         self.next_btn.clicked.connect(self._start_inputs)
+        self.next_btn.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
         self.cancel_btn = QtWidgets.QPushButton("Annuller")
         self.cancel_btn.clicked.connect(self.hide_menu)
+        self.cancel_btn.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
+        btn_row.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
+        btn_row.addWidget(self.confirm_btn)
         btn_row.addWidget(self.next_btn)
         btn_row.addWidget(self.cancel_btn)
         self.layout().addLayout(btn_row)
-
-        self.confirm_btn = QtWidgets.QPushButton("Jeg er klar til at markulere.")
-        self.confirm_btn.setEnabled(False)
-        self.confirm_btn.clicked.connect(self._confirm)
         self.confirm_btn.hide()
-        self.layout().addWidget(self.confirm_btn)
 
         self.setMaximumHeight(0)
         self.hide()
@@ -597,6 +645,9 @@ class DeleteMenu(QtWidgets.QWidget):
         self.confirm_btn.hide()
         self.next_btn.show()
         self.cancel_btn.show()
+        self.intro.show()
+        self.haiku_label.show()
+        self.instruction.hide()
         end = self.sizeHint().height()
         anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
         anim.setStartValue(0)
@@ -631,6 +682,9 @@ class DeleteMenu(QtWidgets.QWidget):
             inp.show()
         self.next_btn.hide()
         self.confirm_btn.show()
+        self.intro.hide()
+        self.haiku_label.hide()
+        self.instruction.show()
         self._validate()
         self.inputs[0].setFocus()
 
@@ -692,7 +746,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.timer_menu = TimerMenu()
         self.timer_menu.changed.connect(self._timer_selected)
         self.timer_menu.closed.connect(lambda: self.current_editor().setFocus())
-        vlayout.addWidget(self.timer_menu)
+        vlayout.addWidget(
+            self.timer_menu, alignment=QtCore.Qt.AlignmentFlag.AlignHCenter
+        )
 
         # Fanelinje
         self.tabs = QtWidgets.QTabWidget()
@@ -715,13 +771,17 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         sep_layout.setContentsMargins(10, 0, 10, 0)
         line = QtWidgets.QFrame()
         line.setFixedHeight(1)
-        line.setStyleSheet("background:#333;")
+        line.setStyleSheet("background:#444;")
+        shadow = QtWidgets.QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(6)
+        shadow.setOffset(0, -2)
+        line.setGraphicsEffect(shadow)
         sep_layout.addWidget(line)
         vlayout.addLayout(sep_layout)
 
         # Understregning som flyttes når aktiv fane skifter
         self.indicator = QtWidgets.QFrame(self.tabs.tabBar())
-        self.indicator.setStyleSheet("background:#556b2f;")
+        self.indicator.setStyleSheet("background:#4caf50;")
         self.indicator.setFixedHeight(3)
         self.indicator.raise_()
         self.tabs.currentChanged.connect(self._move_indicator)
@@ -742,12 +802,12 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Hemingway-knappen lægges til højre i statuslinien
         self.hemi_button = QtWidgets.QToolButton()
         self.hemi_button.setCheckable(True)
-        hemi_icon = QtGui.QIcon(os.path.join('icons', 'no-backspace.svg'))
+        hemi_icon = QtGui.QIcon(os.path.join("icons", "feather.svg"))
         self.hemi_button.setIcon(hemi_icon)
         self.hemi_button.setIconSize(QtCore.QSize(24, 24))
         self.hemi_button.setStyleSheet(
-            "QToolButton {background:transparent;}"
-            "QToolButton:checked {background:#444;}"
+            "QToolButton {background:#2c2c2c;border-radius:4px;}"
+            "QToolButton:checked {background:#777;}"
         )
         self.hemi_button.setToolTip("Skift Hemingway Mode")
         self.hemi_button.clicked.connect(self.toggle_hemingway)
