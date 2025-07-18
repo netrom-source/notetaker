@@ -391,6 +391,7 @@ class TimerMenu(QtWidgets.QWidget):
         # Starter skjult med højde 0; animationen ændrer "maximumHeight".
         self.setMaximumHeight(0)
         self.hide()
+        self.installEventFilter(self)
 
     def show_menu(self):
         """Vis menuen med en let slide-animation."""
@@ -499,7 +500,11 @@ class FileMenu(QtWidgets.QWidget):
         self.layout().addWidget(self.line)
         btns = QtWidgets.QHBoxLayout()
         self.ok_btn = QtWidgets.QPushButton()
+        self.ok_btn.setAutoDefault(True)
+        self.ok_btn.installEventFilter(self)
         self.cancel_btn = QtWidgets.QPushButton("Annuller")
+        self.cancel_btn.setAutoDefault(True)
+        self.cancel_btn.installEventFilter(self)
         btns.addWidget(self.ok_btn)
         btns.addWidget(self.cancel_btn)
         self.layout().addLayout(btns)
@@ -542,6 +547,8 @@ class FileMenu(QtWidgets.QWidget):
 
     def show_menu(self):
         self.setVisible(True)
+        if self.parent():
+            self.setFixedWidth(int(self.parent().width() * 0.5))
         end = self.sizeHint().height()
         anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
         anim.setStartValue(0)
@@ -584,9 +591,16 @@ class FileMenu(QtWidgets.QWidget):
         self.hide_menu()
 
     def eventFilter(self, obj, event):
-        if event.type() == QtCore.QEvent.Type.KeyPress and event.key() == QtCore.Qt.Key.Key_Escape:
-            self.hide_menu()
-            return True
+        if event.type() == QtCore.QEvent.Type.KeyPress:
+            if event.key() == QtCore.Qt.Key.Key_Escape:
+                self.hide_menu()
+                return True
+            if obj in (self.ok_btn, self.cancel_btn) and event.key() in (
+                QtCore.Qt.Key.Key_Return,
+                QtCore.Qt.Key.Key_Enter,
+            ):
+                obj.click()
+                return True
         return super().eventFilter(obj, event)
 
 
@@ -661,6 +675,7 @@ class DeleteMenu(QtWidgets.QWidget):
         for inp in self.inputs:
             inp.hide()
             inp.textChanged.connect(self._validate)
+            inp.installEventFilter(self)
             self.layout().addWidget(inp)
         for inp, ph in zip(self.inputs, placeholders):
             inp.setPlaceholderText(ph)
@@ -670,18 +685,24 @@ class DeleteMenu(QtWidgets.QWidget):
         self.confirm_btn = QtWidgets.QPushButton("Slet")
         self.confirm_btn.setEnabled(False)
         self.confirm_btn.clicked.connect(self._confirm)
+        self.confirm_btn.setAutoDefault(True)
+        self.confirm_btn.installEventFilter(self)
         self.confirm_btn.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Fixed,
             QtWidgets.QSizePolicy.Policy.Fixed,
         )
         self.next_btn = QtWidgets.QPushButton("Slet")
         self.next_btn.clicked.connect(self._start_inputs)
+        self.next_btn.setAutoDefault(True)
+        self.next_btn.installEventFilter(self)
         self.next_btn.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Fixed,
             QtWidgets.QSizePolicy.Policy.Fixed,
         )
         self.cancel_btn = QtWidgets.QPushButton("Annuller")
         self.cancel_btn.clicked.connect(self.hide_menu)
+        self.cancel_btn.setAutoDefault(True)
+        self.cancel_btn.installEventFilter(self)
         self.cancel_btn.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Fixed,
             QtWidgets.QSizePolicy.Policy.Fixed,
@@ -695,9 +716,12 @@ class DeleteMenu(QtWidgets.QWidget):
 
         self.setMaximumHeight(0)
         self.hide()
+        self.installEventFilter(self)
 
     def show_menu(self):
         self.setVisible(True)
+        if self.parent():
+            self.setFixedWidth(int(self.parent().width() * 0.5))
         self._set_haiku()
         for inp in self.inputs:
             inp.hide()
@@ -725,6 +749,19 @@ class DeleteMenu(QtWidgets.QWidget):
         anim.finished.connect(self._after_hide)
         anim.start()
         self._anim = anim
+
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.Type.KeyPress:
+            if event.key() == QtCore.Qt.Key.Key_Escape:
+                self.hide_menu()
+                return True
+            if obj in (self.confirm_btn, self.next_btn, self.cancel_btn) and event.key() in (
+                QtCore.Qt.Key.Key_Return,
+                QtCore.Qt.Key.Key_Enter,
+            ):
+                obj.click()
+                return True
+        return super().eventFilter(obj, event)
 
     def _after_hide(self):
         self.setVisible(False)
@@ -763,6 +800,141 @@ class DeleteMenu(QtWidgets.QWidget):
         if self.confirm_btn.isEnabled():
             self.hide_menu()
             self.confirmed.emit()
+
+
+class PowerMenu(QtWidgets.QWidget):
+    """Fuldskærmsmenu der aktiveres ved at holde Escape nede."""
+
+    closed = QtCore.pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setLayout(QtWidgets.QVBoxLayout())
+        self.layout().setContentsMargins(40, 40, 40, 40)
+        self.layout().setSpacing(10)
+        self.setStyleSheet("background:#1a1a1a;")
+
+        actions = [
+            ("Sluk maskinen", lambda: os.system("systemctl poweroff")),
+            ("Genstart maskinen", lambda: os.system("systemctl reboot")),
+            ("Luk X11", lambda: os.system("pkill X")),
+            ("Aktiver/Deaktiver WIFI", self._toggle_wifi),
+            ("\u00c5bn terminalvindue (LXTerminal)", lambda: os.system("lxterminal &")),
+            ("\u00c5bn README", self._open_readme),
+        ]
+        self.wifi_enabled = True
+        self.buttons = []
+        for text, func in actions:
+            btn = QtWidgets.QPushButton(text)
+            btn.clicked.connect(func)
+            btn.setAutoDefault(True)
+            btn.installEventFilter(self)
+            self.layout().addWidget(btn)
+            self.buttons.append(btn)
+
+        self.setVisible(False)
+        self.setGeometry(0, 0, 0, 0)
+
+    def _toggle_wifi(self):
+        cmd = "nmcli radio wifi off" if self.wifi_enabled else "nmcli radio wifi on"
+        os.system(cmd)
+        self.wifi_enabled = not self.wifi_enabled
+
+    def _open_readme(self):
+        path = os.path.join(ROOT_DIR, "README.md")
+        os.system(f"xdg-open '{path}' &")
+
+    def show_menu(self):
+        if not self.parent():
+            return
+        parent = self.parent()
+        self.setGeometry(0, parent.height(), parent.width(), parent.height())
+        self.setVisible(True)
+        anim = QtCore.QPropertyAnimation(self, b"geometry")
+        anim.setStartValue(QtCore.QRect(0, parent.height(), parent.width(), parent.height()))
+        anim.setEndValue(QtCore.QRect(0, 0, parent.width(), parent.height()))
+        anim.setDuration(200)
+        anim.start()
+        self._anim = anim
+        if self.buttons:
+            self.buttons[0].setFocus()
+
+    def hide_menu(self):
+        if not self.parent():
+            self.setVisible(False)
+            return
+        parent = self.parent()
+        anim = QtCore.QPropertyAnimation(self, b"geometry")
+        anim.setStartValue(self.geometry())
+        anim.setEndValue(QtCore.QRect(0, parent.height(), parent.width(), parent.height()))
+        anim.setDuration(200)
+        anim.finished.connect(self._after_hide)
+        anim.start()
+        self._anim = anim
+
+    def _after_hide(self):
+        self.setVisible(False)
+        self.closed.emit()
+        
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.Type.KeyPress:
+            if event.key() == QtCore.Qt.Key.Key_Escape:
+                self.hide_menu()
+                return True
+            if obj in self.buttons and event.key() in (
+                QtCore.Qt.Key.Key_Return,
+                QtCore.Qt.Key.Key_Enter,
+            ):
+                obj.click()
+                return True
+        return super().eventFilter(obj, event)
+
+
+class NotificationBar(QtWidgets.QStatusBar):
+    """Statusbar der kan glide op og ned."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(
+            "QStatusBar{background:#1a1a1a;color:#ddd;border-radius:6px;padding:4px;}"
+        )
+        shadow = QtWidgets.QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(8)
+        shadow.setOffset(0, 0)
+        self.setGraphicsEffect(shadow)
+        self.setMaximumHeight(0)
+        self._anim = None
+        self._hide_timer = QtCore.QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self.hide_bar)
+
+    def show_bar(self):
+        end = self.sizeHint().height()
+        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
+        anim.setStartValue(0)
+        anim.setEndValue(end)
+        anim.setDuration(200)
+        anim.start()
+        self._anim = anim
+
+    def hide_bar(self):
+        end = self.maximumHeight()
+        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
+        anim.setStartValue(end)
+        anim.setEndValue(0)
+        anim.setDuration(200)
+        anim.start()
+        self._anim = anim
+
+    def showMessage(self, message: str, timeout: int = 0) -> None:
+        self.show_bar()
+        super().showMessage(message, timeout)
+        if timeout > 0:
+            self._hide_timer.start(timeout)
+
+    def clearMessage(self) -> None:
+        super().clearMessage()
+        self.hide_bar()
 
 # ----- Hovedvindue -----
 
@@ -829,14 +1001,19 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.delete_menu.closed.connect(lambda: self.current_editor().setFocus())
         vlayout.addWidget(self.delete_menu)
 
-        # Adskillelseslinje over statusbaren
+        # Menu som vises ved at holde Escape nede
+        self.power_menu = PowerMenu(central)
+        self.power_menu.closed.connect(lambda: self.current_editor().setFocus())
+        vlayout.addWidget(self.power_menu)
+
+        # Adskillelseslinje over statusbaren med blød skygge
         sep_layout = QtWidgets.QHBoxLayout()
         sep_layout.setContentsMargins(10, 0, 10, 0)
         line = QtWidgets.QFrame()
         line.setFixedHeight(1)
-        line.setStyleSheet("background:#444;")
+        line.setStyleSheet("background:#333;")
         shadow = QtWidgets.QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(6)
+        shadow.setBlurRadius(12)
         shadow.setOffset(0, -2)
         line.setGraphicsEffect(shadow)
         sep_layout.addWidget(line)
@@ -851,17 +1028,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.tabs.currentChanged.connect(self._move_indicator)
         self.tabs.tabBar().installEventFilter(self)
 
-        # Statuslinjen nederst viser midlertidige beskeder
-        self.status = QtWidgets.QStatusBar()
+        # Notifikationsbar der glider op
+        self.status = NotificationBar()
         self.setStatusBar(self.status)
-        # Gør statusbaren mere moderne og med samme farve som editoren
-        self.status.setStyleSheet(
-            "QStatusBar{background:#1a1a1a;color:#ddd;border-radius:6px;padding:4px;}"
-        )
-        shadow = QtWidgets.QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(8)
-        shadow.setOffset(0, 0)
-        self.status.setGraphicsEffect(shadow)
 
         # Hemingway-knappen lægges til højre i statuslinien
         self.hemi_button = QtWidgets.QToolButton()
@@ -899,6 +1068,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.last_reset = 0
         self.current_duration = 0
         self.last_save_press = 0
+        self.esc_timer = QtCore.QTimer(self)
+        self.esc_timer.setSingleShot(True)
+        self.esc_timer.timeout.connect(self.power_menu.show_menu)
 
         # Genveje
         self._setup_shortcuts()
@@ -960,6 +1132,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         super().resizeEvent(event)
         if self.timer_menu.isVisible() and self.timer_menu.parent():
             self.timer_menu.setFixedWidth(int(self.width() * 0.33))
+        if self.file_menu.isVisible() and self.file_menu.parent():
+            self.file_menu.setFixedWidth(int(self.width() * 0.5))
+        if self.delete_menu.isVisible() and self.delete_menu.parent():
+            self.delete_menu.setFixedWidth(int(self.width() * 0.5))
 
     def _style_tabs(self, padding: int = 4):
         """Stil opsætningen af fanelinjen.
@@ -1124,6 +1300,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             anim.setEndValue(0)
             anim.finished.connect(lambda: bar.setVisible(False))
             self.indicator.hide()
+            self.status.hide_bar()
         else:
             bar.setVisible(True)
             anim.setStartValue(0)
@@ -1140,6 +1317,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             ind_anim.start()
             self._indicator_anim = ind_anim
             anim.finished.connect(lambda: self._move_indicator(self.tabs.currentIndex()))
+            if self.status.currentMessage():
+                self.status.show_bar()
         anim.setDuration(200)
         anim.start()
         self._tabbar_anim = anim
@@ -1147,8 +1326,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     # ----- Sletning af filer -----
 
     def request_delete(self):
-        """Vis menuen der kræver et haiku før sletning."""
-        self.delete_menu.show_menu()
+        """Vis eller skjul menuen der kræver et haiku før sletning."""
+        if self.delete_menu.isVisible():
+            self.delete_menu.hide_menu()
+        else:
+            self.delete_menu.show_menu()
 
     def _delete_current_file(self):
         """Slet den aktuelle fil og lukk fanen."""
@@ -1191,6 +1373,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             editor.highlighter.rehighlight()
         if self.timer_menu.isVisible() and self.timer_menu.parent():
             self.timer_menu.setFixedWidth(int(self.width() * 0.33))
+        if self.file_menu.isVisible() and self.file_menu.parent():
+            self.file_menu.setFixedWidth(int(self.width() * 0.5))
+        if self.delete_menu.isVisible() and self.delete_menu.parent():
+            self.delete_menu.setFixedWidth(int(self.width() * 0.5))
         QtCore.QTimer.singleShot(
             0, lambda idx=self.tabs.currentIndex(): self._move_indicator(idx)
         )
