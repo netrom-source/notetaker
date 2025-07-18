@@ -319,17 +319,16 @@ class TimerMenu(QtWidgets.QWidget):
         super().__init__(parent)
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
-        # Udseende for knapper når de har fokus
+        # Kun fokusfarve defineres her -- selve knapstilen sættes globalt
         self.setStyleSheet(
-            "QPushButton {border:none;padding:4px;color:#ddd;}"
-            "QPushButton:focus {background:#444;border:none;}"
+            "QPushButton:focus{background:#444;}"
         )
         self.buttons = []
         for seconds in self.presets:
             btn = QtWidgets.QPushButton(self._fmt(seconds))
             btn.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
             btn.clicked.connect(lambda _, s=seconds: self._choose(s))
-            btn.setAutoDefault(False)
+            btn.setAutoDefault(True)
             btn.installEventFilter(self)
             self.layout().addWidget(btn)
             self.buttons.append(btn)
@@ -390,9 +389,13 @@ class TimerMenu(QtWidgets.QWidget):
             else:
                 seconds = int(text) * 60
         except ValueError:
-            QtWidgets.QMessageBox.warning(
-                self, "Ugyldigt format",
-                "Indtast et tal (minutter) eller med 's' for sekunder")
+            # Vis midlertidig advarsel direkte i feltet fremfor dialog
+            self.custom_input.clear()
+            old = self.custom_input.placeholderText()
+            self.custom_input.setPlaceholderText("Ugyldigt input")
+            QtCore.QTimer.singleShot(
+                1500, lambda: self.custom_input.setPlaceholderText(old)
+            )
             return
         self.changed.emit(seconds)
         self.custom_input.clear()
@@ -406,6 +409,9 @@ class TimerMenu(QtWidgets.QWidget):
             # Navigér mellem knapperne med piletaster
             if obj in self.buttons:
                 idx = self.buttons.index(obj)
+                if event.key() in (QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter):
+                    obj.click()
+                    return True
                 if event.key() in (QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Right):
                     if idx == len(self.buttons) - 1:
                         self.custom_input.setFocus()
@@ -436,6 +442,7 @@ class FileMenu(QtWidgets.QWidget):
     """En simpel menu til filnavne der glider op fra bunden."""
 
     accepted = QtCore.pyqtSignal(str)
+    closed = QtCore.pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -508,9 +515,13 @@ class FileMenu(QtWidgets.QWidget):
         anim.setStartValue(end)
         anim.setEndValue(0)
         anim.setDuration(200)
-        anim.finished.connect(lambda: self.setVisible(False))
+        anim.finished.connect(self._after_hide)
         anim.start()
         self._anim = anim
+
+    def _after_hide(self):
+        self.setVisible(False)
+        self.closed.emit()
 
     def _emit(self):
         if self.mode == "open":
@@ -576,6 +587,7 @@ class DeleteMenu(QtWidgets.QWidget):
         self.intro = QtWidgets.QLabel(
             "Denne skrivemaskine er bygget til at skrive, ikke slette."
         )
+        self.intro.setStyleSheet("color:#ccc;")
         self.intro.setWordWrap(True)
         self.intro.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.layout().addWidget(self.intro)
@@ -583,11 +595,13 @@ class DeleteMenu(QtWidgets.QWidget):
         self.haiku_label = QtWidgets.QLabel()
         self.haiku_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.haiku_label.setWordWrap(True)
+        self.haiku_label.setStyleSheet("color:#ccc;")
         self.layout().addWidget(self.haiku_label)
 
         self.instruction = QtWidgets.QLabel(
             "Hvis du virkelig vil slette denne fil, skriv da et haiku om fortrydelse eller afslutning."
         )
+        self.instruction.setStyleSheet("color:#ccc;")
         self.instruction.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.instruction.setWordWrap(True)
         self.instruction.hide()
@@ -607,7 +621,7 @@ class DeleteMenu(QtWidgets.QWidget):
             inp.setPlaceholderText(ph)
         self.inputs[-1].returnPressed.connect(self._confirm)
 
-        btn_row = QtWidgets.QVBoxLayout()
+        btn_row = QtWidgets.QHBoxLayout()
         self.confirm_btn = QtWidgets.QPushButton("Slet")
         self.confirm_btn.setEnabled(False)
         self.confirm_btn.clicked.connect(self._confirm)
@@ -758,6 +772,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Filmenu til åben/gem som glider op fra bunden
         self.file_menu = FileMenu()
         self.file_menu.accepted.connect(self._file_action)
+        self.file_menu.closed.connect(lambda: self.current_editor().setFocus())
         vlayout.addWidget(self.file_menu)
 
         # Menu til sletning med haiku-beskyttelse
@@ -931,9 +946,12 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.status.showMessage("Ny note oprettet", 2000)
 
     def open_file(self):
-        """Vis filmenuen for at åbne en fil."""
-        self.file_menu.setup("open")
-        self.file_menu.show_menu()
+        """Vis eller skjul filmenuen for at åbne en fil."""
+        if self.file_menu.isVisible() and self.file_menu.mode == "open":
+            self.file_menu.hide_menu()
+        else:
+            self.file_menu.setup("open")
+            self.file_menu.show_menu()
 
     def save_file(self):
         """Gem den aktuelle fane."""
@@ -956,13 +974,16 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.status.showMessage(f"Gemt {path}", 2000)
 
     def save_file_as(self):
-        """Vis menuen for at gemme under et nyt navn."""
-        editor = self.current_editor()
-        self.file_menu.setup(
-            "save",
-            os.path.splitext(os.path.basename(editor.file_path))[0] if editor.file_path else "note",
-        )
-        self.file_menu.show_menu()
+        """Vis eller skjul menuen for at gemme under et nyt navn."""
+        if self.file_menu.isVisible() and self.file_menu.mode == "save":
+            self.file_menu.hide_menu()
+        else:
+            editor = self.current_editor()
+            self.file_menu.setup(
+                "save",
+                os.path.splitext(os.path.basename(editor.file_path))[0] if editor.file_path else "note",
+            )
+            self.file_menu.show_menu()
 
     def _file_action(self, path: str):
         """Håndter resultatet fra filmenuen."""
@@ -1194,6 +1215,12 @@ def main():
     dark.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor("#121212"))
     dark.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor("#e6e6e6"))
     app.setPalette(dark)
+    # Ensartet udseende for knapper uafhængigt af window manager
+    app.setStyleSheet(
+        "QPushButton{background:#333;color:#ddd;border:none;border-radius:6px;padding:4px;}"
+        "QPushButton:pressed{background:#555;}"
+        "QPushButton:disabled{color:#555;background:#222;}"
+    )
     window = NotatorMainWindow()
     window.show()
     sys.exit(app.exec())
