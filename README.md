@@ -6,12 +6,17 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 - Mørk brugerflade og Markdown-highlighting direkte i editoren
 - Automatisk genskabelse af seneste session med faner og zoomniveau
 - Nye filer navngives automatisk med tidsstempel og gemmes i `data/`
+- Første gang der gemmes kan filen omdøbes via `Ctrl+S`
 - Auto-gem af åbne noter hvert tiende sekund
 - Indbygget timer med presets (30 sek, 3, 7 og 11 min) og brugerdefineret tid
 - Hemingway Mode som forhindrer sletning og baglæns navigation
+- Knappen til Hemingway Mode findes i statuslinjen
 - UI-skalering med `Ctrl++` og `Ctrl+-`
 - Fanelinje kan skjules med `Ctrl+Alt+.`
+- Fanelinjen viser en grøn bjælke under den aktive fane
 - Live-rendering af Markdown-overskrifter direkte i teksten
+- Timerens menu glider ned under tidtagningen og vælgeren kan betjenes med tastatur
+- Alle tekster bruger fonten JetBrains Mono
 
 ## Tastaturgenveje
 | Handling | Genvej |
@@ -25,7 +30,7 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 | Skjul fanelinje | `Ctrl+Alt+.` |
 | Start timer | `Ctrl+T` |
 | Reset/stop timer | `Ctrl+R` |
-| Hemingway Mode | `Ctrl+H` eller knappen i øverste højre hjørne |
+| Hemingway Mode | `Ctrl+H` eller knappen i statuslinjens højre side |
 | Zoom ind/ud | `Ctrl++`, `Ctrl+-` |
 
 Dobbelttryk `Ctrl+R` inden for to sekunder stopper timeren helt.
@@ -40,4 +45,7 @@ Programmet forsøger at starte i fuldskærm og genskaber automatisk tidligere å
 ## Begrænsninger
 - Programmet kræver at Qt-platform pluginnet `xcb` er installeret for at køre under X11. På nogle systemer kan dette mangle og forhindre opstart.
 - Der er ingen forsøg på konfliktløsning hvis to processer redigerer den samme fil samtidigt.
+
+## Ændringer
+- 18-07-2025: Filnavnet kan nu ændres ved første gem, Hemingway-knappen er flyttet til statuslinjen og timer-menuen er integreret med slide-animation.
 

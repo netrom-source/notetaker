@@ -67,7 +67,13 @@ class NoteTab(QtWidgets.QTextEdit):
     def __init__(self, file_path: str, parent=None):
         super().__init__(parent)
         self.file_path = file_path
+        # ``auto_name`` angiver om filnavnet er autogenereret. Når brugeren
+        # gemmer med et eget navn, sættes denne til ``False`` så autosave ikke
+        # skriver tilbage til den gamle sti.
+        self.auto_name = True
         self.hemingway = False  # Hvis sand, blokeres sletning og navigation bagud
+        # Sammen med resten af programmet anvendes fonten JetBrains Mono for at
+        # skabe et ensartet udtryk på tværs af widgets.
         self.setFont(QtGui.QFont("JetBrains Mono", 10))
         # Mørk baggrund og små marginer i siderne
         self.setStyleSheet("background:#1a1a1a;color:#e6e6e6")
@@ -109,7 +115,11 @@ class TimerWidget(QtWidgets.QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.setStyleSheet("background:#1a1a1a;color:#e6e6e6;font-size: 16pt; padding: 4px;")
+        # Farverne matcher programmets mørke tema. Når timeren er aktiv
+        # fremhæves baggrunden med en støvet grøn nuance.
+        self.setStyleSheet(
+            "background:#1a1a1a;color:#e6e6e6;font-size: 16pt; padding: 4px;"
+        )
         self._duration = 0
         self._remaining = 0
         self._timer = QtCore.QTimer(self)
@@ -121,6 +131,10 @@ class TimerWidget(QtWidgets.QLabel):
         self._duration = seconds
         self._remaining = seconds
         self._update_label()
+        # Giv visuel feedback på at en timer kører
+        self.setStyleSheet(
+            "background:#556b2f;color:#e6e6e6;font-size: 16pt; padding: 4px;"
+        )
         self.show()
         self._timer.start(1000)  # opdater hvert sekund
 
@@ -128,6 +142,10 @@ class TimerWidget(QtWidgets.QLabel):
         """Stop og nulstil timeren."""
         self._timer.stop()
         self.hide()
+        # Fjern markeringen når timeren ikke kører
+        self.setStyleSheet(
+            "background:#1a1a1a;color:#e6e6e6;font-size: 16pt; padding: 4px;"
+        )
 
     def _update_time(self):
         self._remaining -= 1
@@ -141,85 +159,106 @@ class TimerWidget(QtWidgets.QLabel):
         mins, secs = divmod(self._remaining, 60)
         self.setText(f"{mins:02d}:{secs:02d}")
 
-class TimerDialog(QtWidgets.QDialog):
-    """Lader brugeren vælge en tid før nedtællingen starter.
+class TimerMenu(QtWidgets.QWidget):
+    """En nedfældet menu hvor brugeren vælger timerens længde.
 
-    Dialogen viser fire foruddefinerede knapper og et felt hvor en
-    brugerdefineret tid i sekunder kan skrives. ``selected_seconds``
-    gemmer resultatet når dialogen lukkes.
+    Menuen erstatter den tidligere dialogboks og er nu integreret som en
+    skjult widget under timer-displayet. ``changed``-signalet udsendes med
+    det valgte antal sekunder, hvorefter menuen skjules igen.
     """
 
-    # Prædefinerede tider i sekunder
-    presets = [30, 3*60, 7*60, 11*60]
+    changed = QtCore.pyqtSignal(int)
+    presets = [30, 3 * 60, 7 * 60, 11 * 60]
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Vælg tid")
-        self.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
         self.setLayout(QtWidgets.QVBoxLayout())
+        self.layout().setContentsMargins(0, 0, 0, 0)
         self.buttons = []
         for seconds in self.presets:
             btn = QtWidgets.QPushButton(self._fmt(seconds))
+            btn.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+            btn.clicked.connect(lambda _, s=seconds: self._choose(s))
+            btn.setAutoDefault(False)
             self.layout().addWidget(btn)
             self.buttons.append(btn)
         self.custom_input = QtWidgets.QLineEdit()
-        self.custom_input.setPlaceholderText("Skriv antal sekunder...")
-        self.layout().addWidget(self.custom_input)
-        self.selected_seconds = None
-
-        # Tastaturnavigation mellem knapper med piletaster
-        for btn in self.buttons:
-            btn.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+        self.custom_input.setPlaceholderText("Sekunder...")
         self.custom_input.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-
-        # Knappernes handling
-        for btn in self.buttons:
-            btn.clicked.connect(self._preset_chosen)
-        self.custom_input.returnPressed.connect(self._custom_chosen)
+        self.custom_input.returnPressed.connect(self._custom)
         self.custom_input.installEventFilter(self)
+        self.layout().addWidget(self.custom_input)
 
-    def _preset_chosen(self):
-        text = self.sender().text()
-        value = int(text.split(' ')[0])
-        if 'sek' in text:
-            self.selected_seconds = value
-        else:
-            self.selected_seconds = value * 60
-        self.accept()
+        # Starter skjult med højde 0; animationen ændrer "maximumHeight".
+        self.setMaximumHeight(0)
+        self.hide()
 
-    def _custom_chosen(self):
+    def show_menu(self):
+        """Vis menuen med en let slide-animation."""
+        self.setVisible(True)
+        end = self.sizeHint().height()
+        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
+        anim.setStartValue(0)
+        anim.setEndValue(end)
+        anim.setDuration(200)
+        anim.start()
+        self._anim = anim
+        self.buttons[0].setFocus()
+
+    def hide_menu(self):
+        """Skjul menuen igen med samme animation modsat."""
+        end = self.maximumHeight()
+        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
+        anim.setStartValue(end)
+        anim.setEndValue(0)
+        anim.setDuration(200)
+        anim.finished.connect(lambda: self.setVisible(False))
+        anim.start()
+        self._anim = anim
+
+    def _choose(self, seconds: int):
+        self.changed.emit(seconds)
+        self.hide_menu()
+
+    def _custom(self):
         try:
-            self.selected_seconds = int(self.custom_input.text())
-            self.accept()
+            seconds = int(self.custom_input.text())
         except ValueError:
             QtWidgets.QMessageBox.warning(self, "Ugyldigt tal",
-                                          "Indtast et heltal for minutter")
+                                          "Indtast et heltal i sekunder")
+            return
+        self.changed.emit(seconds)
+        self.hide_menu()
 
     def eventFilter(self, obj, event):
-        """Sørger for at man kan gå tilbage til presets med pil op."""
         if obj is self.custom_input and event.type() == QtCore.QEvent.Type.KeyPress:
             if event.key() == QtCore.Qt.Key.Key_Up:
                 self.buttons[-1].setFocus()
                 return True
             if event.key() == QtCore.Qt.Key.Key_Down:
-                return True  # lås fokus
+                return True
         return super().eventFilter(obj, event)
 
     @staticmethod
     def _fmt(seconds: int) -> str:
-        if seconds < 60:
-            return f"{seconds} sek"
-        else:
-            return f"{seconds//60} min"
+        return f"{seconds // 60 if seconds >= 60 else seconds} {'min' if seconds >= 60 else 'sek'}"
 
 # ----- Hovedvindue -----
 
 class NotatorMainWindow(QtWidgets.QMainWindow):
-    """Hovedklassen for programmet."""
+    """Hovedklassen for programmet.
+
+    Her samles alle widgets: timer, menu, faner og statuslinje. Layoutet
+    er holdt enkelt for at kunne køre på svag hardware. Fonten sættes
+    her globalt så alle under-widgets arver JetBrains Mono.
+    """
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Notator")
         self.resize(800, 600)
+        # Global font for hele applikationen
+        base_font = QtGui.QFont("JetBrains Mono", 10)
+        self.setFont(base_font)
 
         # Central widget indeholder timer og faner
         central = QtWidgets.QWidget()
@@ -227,38 +266,49 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         vlayout = QtWidgets.QVBoxLayout(central)
         vlayout.setContentsMargins(0, 0, 0, 0)
 
-        # Topbaren indeholder timeren til venstre og en Hemingway-knap til højre
+        # Topbaren indeholder kun timeren. Hemingway-knappen flyttes til
+        # statuslinjen for at rydde op i layoutet.
         top_bar = QtWidgets.QHBoxLayout()
         vlayout.addLayout(top_bar)
 
-        # Timeren placeres i venstre side
         self.timer_widget = TimerWidget()
         self.timer_widget.timeout.connect(self.timer_finished)
         top_bar.addWidget(self.timer_widget)
 
-        # Spacer sørger for at Hemingway-knappen rykkes helt til højre
-        top_bar.addStretch()
-
-        # Knap til at aktivere/deaktivere Hemingway Mode
-        self.hemi_button = QtWidgets.QToolButton()
-        self.hemi_button.setCheckable(True)
-        self.hemi_button.setText("\u2712")  # sort fyldt pen som ikon
-        # Farven skifter alt efter om knappen er trykket ned eller ej
-        self.hemi_button.setStyleSheet(
-            "QToolButton {color:#888;background:transparent;border:none;}"
-            "QToolButton:checked {color:#00aa00;}"
-        )
-        self.hemi_button.setToolTip("Skift Hemingway Mode")
-        self.hemi_button.clicked.connect(self.toggle_hemingway)
-        top_bar.addWidget(self.hemi_button)
+        # Menuen til tidsvalg placeres lige under timeren og er skjult som standard
+        self.timer_menu = TimerMenu()
+        self.timer_menu.changed.connect(self._timer_selected)
+        vlayout.addWidget(self.timer_menu)
 
         # Fanelinje
         self.tabs = QtWidgets.QTabWidget()
         vlayout.addWidget(self.tabs)
+        self._style_tabs()
+
+        # Understregning som flyttes når aktiv fane skifter
+        self.indicator = QtWidgets.QFrame(self.tabs.tabBar())
+        self.indicator.setStyleSheet("background:#556b2f;")
+        self.indicator.setFixedHeight(3)
+        self.indicator.raise_()
+        self.tabs.currentChanged.connect(self._move_indicator)
 
         # Statuslinjen nederst viser midlertidige beskeder
         self.status = QtWidgets.QStatusBar()
         self.setStatusBar(self.status)
+
+        # Hemingway-knappen lægges til højre i statuslinien
+        self.hemi_button = QtWidgets.QToolButton()
+        self.hemi_button.setCheckable(True)
+        hemi_icon = QtGui.QIcon(os.path.join('icons', 'no-backspace.svg'))
+        self.hemi_button.setIcon(hemi_icon)
+        self.hemi_button.setIconSize(QtCore.QSize(16, 16))
+        self.hemi_button.setStyleSheet(
+            "QToolButton {background:transparent;}"
+            "QToolButton:checked {background:#444;}"
+        )
+        self.hemi_button.setToolTip("Skift Hemingway Mode")
+        self.hemi_button.clicked.connect(self.toggle_hemingway)
+        self.status.addPermanentWidget(self.hemi_button)
 
         # Først angiv standard skalering
         self.scale_factor = 1.0
@@ -295,12 +345,34 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl++"), self, self.zoom_in)
         QtGui.QShortcut(QtGui.QKeySequence("Ctrl+-"), self, self.zoom_out)
 
+    def _style_tabs(self):
+        """Anvend minimalistisk udseende på fanelinjen."""
+        bar = self.tabs.tabBar()
+        bar.setDrawBase(False)
+        self.tabs.setDocumentMode(True)
+        self.tabs.setStyleSheet(
+            "QTabBar::tab {background:transparent;padding:4px 12px;color:#aaa;}"
+            "QTabBar::tab:selected {color:#fff;}"
+            "QTabWidget::pane {border:none;}"
+        )
+
+    def _move_indicator(self, index: int):
+        """Flyt den grønne bjælke under den aktive fane med animation."""
+        bar = self.tabs.tabBar()
+        rect = bar.tabRect(index)
+        end = QtCore.QRect(rect.left(), bar.height() - 3, rect.width(), 3)
+        anim = QtCore.QPropertyAnimation(self.indicator, b"geometry")
+        anim.setDuration(200)
+        anim.setStartValue(self.indicator.geometry())
+        anim.setEndValue(end)
+        anim.start()
+        self._indicator_anim = anim
+
     def current_editor(self) -> NoteTab:
         """Returner det aktive NoteTab-objekt."""
         return self.tabs.currentWidget()
 
     # ----- Fanehåndtering -----
-
 
     def _generate_filename(self) -> str:
         """Lav et tidsstempel-navn i mappen data."""
@@ -321,6 +393,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         editor = NoteTab(path)
         index = self.tabs.addTab(editor, os.path.basename(path))
         self.tabs.setCurrentIndex(index)
+        # Flyt indikatorbjælken til den nye fane
+        self._move_indicator(index)
         editor.auto_save()  # gem straks
         self._apply_scale(1)  # anvend nuværende skala
         self.status.showMessage("Ny note oprettet", 2000)
@@ -333,16 +407,20 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             with open(path, "r", encoding="utf-8") as f:
                 text = f.read()
             editor = NoteTab(path)
+            editor.auto_name = False
             editor.setText(text)
             index = self.tabs.addTab(editor, os.path.basename(path))
             self.tabs.setCurrentIndex(index)
+            self._move_indicator(index)
             self.status.showMessage(f"Åbnede {path}", 2000)
 
     def save_file(self):
         """Gem den aktuelle fane."""
         editor = self.current_editor()
         path = getattr(editor, "file_path", None)
-        if not path:
+        # Hvis filen stadig har et autogenereret navn ønsker vi at
+        # spørge brugeren om et bedre navn første gang der gemmes.
+        if not path or getattr(editor, "auto_name", False):
             self.save_file_as()
             return
         with open(path, "w", encoding="utf-8") as f:
@@ -355,9 +433,12 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Gem som", os.getcwd(), "Tekstfiler (*.md *.txt)")
         if path:
+            if not path.endswith('.md'):
+                path += '.md'
             with open(path, "w", encoding="utf-8") as f:
                 f.write(editor.toPlainText())
             editor.file_path = path
+            editor.auto_name = False
             self.tabs.setTabText(self.tabs.currentIndex(), os.path.basename(path))
             self.status.showMessage(f"Gemt som {path}", 2000)
 
@@ -369,18 +450,21 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             if self.tabs.count() == 0:
                 self.new_tab()
             self.status.showMessage("Fane lukket", 2000)
+            self._move_indicator(self.tabs.currentIndex())
 
     def prev_tab(self):
         """Skift til forrige fane."""
         index = self.tabs.currentIndex()
         if index > 0:
             self.tabs.setCurrentIndex(index - 1)
+            self._move_indicator(index - 1)
 
     def next_tab(self):
         """Skift til næste fane."""
         index = self.tabs.currentIndex()
         if index < self.tabs.count() - 1:
             self.tabs.setCurrentIndex(index + 1)
+            self._move_indicator(index + 1)
 
     def toggle_tabbar(self):
         """Skjul eller vis fanelinjen."""
@@ -410,18 +494,20 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     # ----- Timerfunktioner -----
 
     def toggle_timer(self):
-        """Åbn dialogen til valg af tid."""
-        self.show_timer_dialog()
+        """Vis eller skjul timer-menuen."""
+        if self.timer_menu.isVisible():
+            self.timer_menu.hide_menu()
+        else:
+            self.timer_menu.show_menu()
 
-    def show_timer_dialog(self):
-        """Vis dialogen hvor brugeren vælger tiden."""
-        dialog = TimerDialog(self)
-        if dialog.exec():
-            seconds = dialog.selected_seconds
-            if seconds:
-                self.timer_widget.start(seconds)
-                self.current_duration = seconds
-                self.status.showMessage(f"Timer startet: {self.current_duration} sek", 2000)
+    def _timer_selected(self, seconds: int):
+        """Start timeren med den valgte længde fra menuen."""
+        if seconds:
+            self.timer_widget.start(seconds)
+            self.current_duration = seconds
+            self.status.showMessage(
+                f"Timer startet: {self.current_duration} sek", 2000
+            )
 
     def reset_or_stop_timer(self):
         """Resetter timeren eller stopper den ved dobbelttryk."""
@@ -501,11 +587,13 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 with open(path, "r", encoding="utf-8") as f:
                     text = f.read()
                 editor = NoteTab(path)
+                editor.auto_name = False
                 editor.setText(text)
                 self.tabs.addTab(editor, os.path.basename(path))
         self.tabs.setCurrentIndex(min(data.get("current", 0), self.tabs.count()-1))
         self.scale_factor = data.get("scale", 1.0)
         self._apply_scale(1)  # anvend nuværende skala
+        self._move_indicator(self.tabs.currentIndex())
         return True
 
 # ----- Programstart -----
