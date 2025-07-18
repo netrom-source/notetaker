@@ -57,4 +57,3 @@ Programmet forsøger at starte i fuldskærm og genskaber automatisk tidligere å
 - 18-07-2025: Filnavnet kan nu ændres ved første gem, Hemingway-knappen er flyttet til statuslinjen og timer-menuen er integreret med slide-animation.
 - 18-07-2025: Forbedret timer-navigation, fontvalg med fallback og moderne statuslinje.
 - 18-07-2025: Timeren blinker ved udløb og fil-dialogerne er erstattet af indbyggede menuer.
-
