@@ -93,8 +93,14 @@ class NoteTab(QtWidgets.QTextEdit):
         # Brug den skrifttype som ``pick_mono_font`` finder. Dermed er vi
         # robuste overfor systemer hvor JetBrains Mono ikke er installeret.
         self.setFont(QtGui.QFont(pick_mono_font(), 10))
-        # Mørk baggrund og små marginer i siderne
-        self.setStyleSheet("background:#1a1a1a;color:#e6e6e6")
+        # Mørk baggrund og små marginer i siderne samt tilpassede scrollbars
+        self.setStyleSheet(
+            "background:#1a1a1a;color:#e6e6e6;"
+            "QScrollBar{background:#1a1a1a;border:none;}"
+            "QScrollBar::handle{background:#555;border-radius:4px;}"
+            "QScrollBar::add-line,QScrollBar::sub-line{width:0;height:0;}"
+            "QScrollBar::add-page,QScrollBar::sub-page{background:none;}"
+        )
         self.margin = 24
         self.setViewportMargins(self.margin, 0, self.margin, 0)
         self.highlighter = MarkdownHighlighter(self.document())
@@ -147,39 +153,73 @@ class TimerWidget(QtWidgets.QLabel):
         self._remaining = 0
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self._update_time)
+        # Ekstra timer der får teksten til at blinke når tiden er gået
+        self._blink_timer = QtCore.QTimer(self)
+        self._blink_timer.timeout.connect(self._blink)
+        self._blink_count = 0
+        self._blinking = False
         self.hide()  # Timeren er skjult indtil den startes
         self._update_style()
 
     def start(self, seconds: int):
         """Start en nedtælling på det angivne antal sekunder."""
+        # Stop eventuel blinkning fra en tidligere nedtælling
+        self._blink_timer.stop()
+        self.setVisible(True)
         self._duration = seconds
         self._remaining = seconds
+        self._blink_count = 0
+        self._blinking = False
         self._update_label()
         # Vis at timeren er aktiv med grøn baggrund
         self._running = True
         self._update_style()
-        self.show()
         self._timer.start(1000)  # opdater hvert sekund
 
     def reset(self):
         """Stop og nulstil timeren."""
         self._timer.stop()
+        self._blink_timer.stop()
         self.hide()
         # Markér at timeren er stoppet
         self._running = False
+        self._blinking = False
         self._update_style()
 
     def _update_time(self):
         self._remaining -= 1
         if self._remaining <= 0:
-            self.timeout.emit()
-            self.reset()
+            self._finish()
         else:
             self._update_label()
 
     def _update_label(self):
         mins, secs = divmod(self._remaining, 60)
         self.setText(f"{mins:02d}:{secs:02d}")
+
+    def _finish(self):
+        """Kaldes når nedtællingen rammer nul."""
+        self._timer.stop()
+        self._running = False
+        self._remaining = 0
+        self._update_label()
+        # Start blink-tilstand i 10 sekunder (20 toggles)
+        self._blink_count = 0
+        self._blinking = True
+        self._update_style()
+        self._blink_timer.start(500)
+        self.timeout.emit()
+
+    def _blink(self):
+        """Skift synlighed for at skabe blinke-effekt."""
+        self.setVisible(not self.isVisible())
+        self._blink_count += 1
+        if self._blink_count >= 20:
+            # Stop efter 10 sekunder
+            self._blink_timer.stop()
+            self.setVisible(True)
+            self._blinking = False
+            self._update_style()
 
     def update_font(self, size: int):
         """Opdater fontstørrelsen og bevar farverne."""
@@ -188,7 +228,12 @@ class TimerWidget(QtWidgets.QLabel):
 
     def _update_style(self):
         """Anvend stylesheet afhængigt af om timeren kører."""
-        bg = "#556b2f" if self._running else "#1a1a1a"
+        if self._blinking:
+            bg = "#8b0000"  # mørk rød når tiden er gået
+        elif self._running:
+            bg = "#556b2f"  # støvet grøn under nedtælling
+        else:
+            bg = "#1a1a1a"
         self.setStyleSheet(
             f"background:{bg};color:#e6e6e6;font-size:{self._font_size}pt; padding:4px;"
         )
@@ -208,6 +253,11 @@ class TimerMenu(QtWidgets.QWidget):
         super().__init__(parent)
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
+        # Udseende for knapper når de har fokus
+        self.setStyleSheet(
+            "QPushButton {border:none;padding:4px;color:#ddd;}"
+            "QPushButton:focus {background:#444;}"
+        )
         self.buttons = []
         for seconds in self.presets:
             btn = QtWidgets.QPushButton(self._fmt(seconds))
@@ -218,7 +268,7 @@ class TimerMenu(QtWidgets.QWidget):
             self.layout().addWidget(btn)
             self.buttons.append(btn)
         self.custom_input = QtWidgets.QLineEdit()
-        self.custom_input.setPlaceholderText("min eller tal+s")
+        self.custom_input.setPlaceholderText("Indtast tid")
         self.custom_input.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.custom_input.returnPressed.connect(self._custom)
         self.custom_input.installEventFilter(self)
@@ -275,26 +325,26 @@ class TimerMenu(QtWidgets.QWidget):
             if event.key() == QtCore.Qt.Key.Key_Escape:
                 self.hide_menu()
                 return True
-            # Navigér op/ned uden at forlade menuen
+            # Navigér mellem knapperne med piletaster
             if obj in self.buttons:
                 idx = self.buttons.index(obj)
-                if event.key() == QtCore.Qt.Key.Key_Down:
+                if event.key() in (QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Right):
                     if idx == len(self.buttons) - 1:
                         self.custom_input.setFocus()
                     else:
                         self.buttons[idx + 1].setFocus()
                     return True
-                if event.key() == QtCore.Qt.Key.Key_Up:
+                if event.key() in (QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Left):
                     if idx == 0:
                         self.custom_input.setFocus()
                     else:
                         self.buttons[idx - 1].setFocus()
                     return True
             if obj is self.custom_input:
-                if event.key() == QtCore.Qt.Key.Key_Up:
+                if event.key() in (QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Left):
                     self.buttons[-1].setFocus()
                     return True
-                if event.key() == QtCore.Qt.Key.Key_Down:
+                if event.key() in (QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Right):
                     self.buttons[0].setFocus()
                     return True
         return super().eventFilter(obj, event)
@@ -302,6 +352,71 @@ class TimerMenu(QtWidgets.QWidget):
     @staticmethod
     def _fmt(seconds: int) -> str:
         return f"{seconds // 60 if seconds >= 60 else seconds} {'min' if seconds >= 60 else 'sek'}"
+
+
+class FileMenu(QtWidgets.QWidget):
+    """En simpel menu til filnavne der glider op fra bunden."""
+
+    accepted = QtCore.pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setLayout(QtWidgets.QVBoxLayout())
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.line = QtWidgets.QLineEdit()
+        self.layout().addWidget(self.line)
+        btns = QtWidgets.QHBoxLayout()
+        self.ok_btn = QtWidgets.QPushButton()
+        self.cancel_btn = QtWidgets.QPushButton("Annuller")
+        btns.addWidget(self.ok_btn)
+        btns.addWidget(self.cancel_btn)
+        self.layout().addLayout(btns)
+
+        self.ok_btn.clicked.connect(self._emit)
+        self.cancel_btn.clicked.connect(self.hide_menu)
+        self.line.installEventFilter(self)
+        self.setMaximumHeight(0)
+        self.hide()
+
+    def setup(self, mode: str, default: str = ""):
+        """Konfigurer menuen til open eller save."""
+        self.mode = mode
+        self.ok_btn.setText("Åbn" if mode == "open" else "Gem")
+        self.line.setText(default)
+        self.line.selectAll()
+
+    def show_menu(self):
+        self.setVisible(True)
+        end = self.sizeHint().height()
+        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
+        anim.setStartValue(0)
+        anim.setEndValue(end)
+        anim.setDuration(200)
+        anim.start()
+        self._anim = anim
+        self.line.setFocus()
+
+    def hide_menu(self):
+        end = self.maximumHeight()
+        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
+        anim.setStartValue(end)
+        anim.setEndValue(0)
+        anim.setDuration(200)
+        anim.finished.connect(lambda: self.setVisible(False))
+        anim.start()
+        self._anim = anim
+
+    def _emit(self):
+        path = self.line.text().strip()
+        if path:
+            self.accepted.emit(path)
+        self.hide_menu()
+
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.Type.KeyPress and event.key() == QtCore.Qt.Key.Key_Escape:
+            self.hide_menu()
+            return True
+        return super().eventFilter(obj, event)
 
 # ----- Hovedvindue -----
 
@@ -346,6 +461,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.tabs = QtWidgets.QTabWidget()
         vlayout.addWidget(self.tabs)
         self._style_tabs()
+
+        # Filmenu til åben/gem som glider op fra bunden
+        self.file_menu = FileMenu()
+        self.file_menu.accepted.connect(self._file_action)
+        vlayout.addWidget(self.file_menu)
 
         # Understregning som flyttes når aktiv fane skifter
         self.indicator = QtWidgets.QFrame(self.tabs.tabBar())
@@ -432,9 +552,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         bar.setDrawBase(False)
         self.tabs.setDocumentMode(True)
         self.tabs.setStyleSheet(
+            "QTabBar {background:#1a1a1a;}"
             f"QTabBar::tab {{background:transparent;padding:{padding}px {padding*3}px;color:#aaa;border:none;}}"
             "QTabBar::tab:selected {color:#fff;}"
-            "QTabWidget::pane {border:none;}"
+            "QTabWidget::pane {border:none;background:#1a1a1a;}"
         )
 
     def _move_indicator(self, index: int):
@@ -482,19 +603,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.status.showMessage("Ny note oprettet", 2000)
 
     def open_file(self):
-        """Åbn en eksisterende tekstfil i en ny fane."""
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Åbn fil", os.getcwd(), "Tekstfiler (*.md *.txt)")
-        if path:
-            with open(path, "r", encoding="utf-8") as f:
-                text = f.read()
-            editor = NoteTab(path)
-            editor.auto_name = False
-            editor.setText(text)
-            index = self.tabs.addTab(editor, os.path.basename(path))
-            self.tabs.setCurrentIndex(index)
-            self._move_indicator(index)
-            self.status.showMessage(f"Åbnede {path}", 2000)
+        """Vis filmenuen for at åbne en fil."""
+        self.file_menu.setup("open")
+        self.file_menu.show_menu()
 
     def save_file(self):
         """Gem den aktuelle fane."""
@@ -510,13 +621,33 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.status.showMessage(f"Gemt {path}", 2000)
 
     def save_file_as(self):
-        """Gem den aktuelle fane som en ny fil."""
+        """Vis menuen for at gemme under et nyt navn."""
         editor = self.current_editor()
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Gem som", os.getcwd(), "Tekstfiler (*.md *.txt)")
-        if path:
-            if not path.endswith('.md'):
-                path += '.md'
+        self.file_menu.setup(
+            "save",
+            os.path.basename(editor.file_path) if editor.file_path else "note.md",
+        )
+        self.file_menu.show_menu()
+
+    def _file_action(self, path: str):
+        """Håndter resultatet fra filmenuen."""
+        if self.file_menu.mode == "open":
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    text = f.read()
+                editor = NoteTab(path)
+                editor.auto_name = False
+                editor.setText(text)
+                index = self.tabs.addTab(editor, os.path.basename(path))
+                self.tabs.setCurrentIndex(index)
+                self._move_indicator(index)
+                self.status.showMessage(f"Åbnede {path}", 2000)
+            else:
+                self.status.showMessage("Filen findes ikke", 2000)
+        else:  # save
+            editor = self.current_editor()
+            if not path.endswith(".md"):
+                path += ".md"
             with open(path, "w", encoding="utf-8") as f:
                 f.write(editor.toPlainText())
             editor.file_path = path
