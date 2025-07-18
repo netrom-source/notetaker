@@ -512,6 +512,145 @@ class FileMenu(QtWidgets.QWidget):
             return True
         return super().eventFilter(obj, event)
 
+
+class DeleteMenu(QtWidgets.QWidget):
+    """Menu der kræver et haiku før en fil kan slettes."""
+
+    confirmed = QtCore.pyqtSignal()
+    closed = QtCore.pyqtSignal()
+
+    haikus = [
+        "Hvad vil du fortr\u00e6nge?\nHvad hvis det var begyndelse \u2013\nikke en fejlskrift?",
+        "Du trykker for slet.\nMen hvem var du, da du skrev?\nEr han stadig her?",
+        "Hver linje du skrev\nbar en dr\u00f8m i forkl\u00e6dning.\nEr du tr\u00e6t af den?",
+        "Hvis du nu forlod\ndette fragment af din stemme \u2013\nhvem vil finde den?",
+        "Glemsel er let nok,\nmen har du givet mening\ntil det, du vil fjerne?",
+        "Skriv ikke forbi.\nSkriv en grav for ordene \u2013\nog g\u00e5 den i m\u00f8de.",
+        "Den tavse cursor sp\u00f8r\u2019:\nSkal jeg forts\u00e6tte alene?\nEller med din h\u00e5nd?",
+        "Et klik, og det g\u00e5r \u2013\nmen f\u00f8r du lader det ske,\nsig hvad det var v\u00e6rd.",
+        "Afsked uden ord\ner bare fortr\u00e6ngningens dans.\nGiv det rytme f\u00f8rst.",
+        "Du skrev det i hast \u2013\nvil du ogs\u00e5 slette det\ns\u00e5dan? Eller i haiku?",
+        "M\u00e5ske var det grimt.\nMen var det ikke ogs\u00e5 dig?\n\u00c9n dag i dit liv.",
+        "Dette var engang\net sted du t\u00e6nkte frit i.\nG\u00e5r du nu forbi?",
+        "Du trykker p\u00e5 slet.\nMen vil du virkelig forlade\ndig selv i m\u00f8rket?",
+        "Lad ikke din frygt\nblive sletterens skygge.\nSkriv med \u00e5bne \u00f8jne.",
+        "Hvis du kan digte,\ns\u00e5 kan du ogs\u00e5 forlade \u2013\nmed hjertet \u00e5bent.",
+        "Hvad flygter du fra?\nOrdene, du selv har valgt \u2013\neller det, de ser?",
+        "Du skrev dette ned.\nVar det ikke sandt engang?\nHvor blev det af dig?",
+        "Hvis du sletter nu,\nhvem er det s\u00e5, du fors\u00f8ger\nat tie ihjel?",
+        "Der var en grund f\u00f8r \u2013\nen tanke, en f\u00f8lelse.\nHar den fortjent glemsel?",
+        "Er du f\u00e6rdig nu?\nEller bare ut\u00e5lmodig\nefter at glemme?",
+        "Du b\u00e6rer en stemme\nind i m\u00f8rket, uden spor.\nEr du sikker nu?",
+        "Nogle ord skal v\u00e6k.\nMen f\u00f8rst m\u00e5 du fort\u00e6lle\nhvad de gjorde ved dig.",
+        "Du har set forbi \u2013\nmen hvad var det, du s\u00e5 her?\nSkriv det i et vers.",
+        "Slet kun det, du har\nmodet til at huske p\u00e5\nn\u00e5r tavsheden st\u00e5r.",
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._index = 0
+        self.setLayout(QtWidgets.QVBoxLayout())
+        self.layout().setContentsMargins(10, 10, 10, 10)
+
+        self.intro = QtWidgets.QLabel(
+            "Denne skrivemaskine er bygget til at skrive, ikke slette."
+        )
+        self.intro.setWordWrap(True)
+        self.intro.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.layout().addWidget(self.intro)
+
+        self.haiku_label = QtWidgets.QLabel()
+        self.haiku_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.haiku_label.setWordWrap(True)
+        self.layout().addWidget(self.haiku_label)
+
+        self.inputs = [QtWidgets.QLineEdit() for _ in range(3)]
+        for inp in self.inputs:
+            inp.hide()
+            inp.textChanged.connect(self._validate)
+            self.layout().addWidget(inp)
+        self.inputs[-1].returnPressed.connect(self._confirm)
+
+        btn_row = QtWidgets.QHBoxLayout()
+        self.next_btn = QtWidgets.QPushButton("Slet alligevel")
+        self.next_btn.clicked.connect(self._start_inputs)
+        self.cancel_btn = QtWidgets.QPushButton("Annuller")
+        self.cancel_btn.clicked.connect(self.hide_menu)
+        btn_row.addWidget(self.next_btn)
+        btn_row.addWidget(self.cancel_btn)
+        self.layout().addLayout(btn_row)
+
+        self.confirm_btn = QtWidgets.QPushButton("Jeg er klar til at markulere.")
+        self.confirm_btn.setEnabled(False)
+        self.confirm_btn.clicked.connect(self._confirm)
+        self.confirm_btn.hide()
+        self.layout().addWidget(self.confirm_btn)
+
+        self.setMaximumHeight(0)
+        self.hide()
+
+    def show_menu(self):
+        self.setVisible(True)
+        self._set_haiku()
+        for inp in self.inputs:
+            inp.hide()
+        self.confirm_btn.hide()
+        self.next_btn.show()
+        self.cancel_btn.show()
+        end = self.sizeHint().height()
+        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
+        anim.setStartValue(0)
+        anim.setEndValue(end)
+        anim.setDuration(200)
+        anim.start()
+        self._anim = anim
+        self.next_btn.setFocus()
+
+    def hide_menu(self):
+        end = self.maximumHeight()
+        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
+        anim.setStartValue(end)
+        anim.setEndValue(0)
+        anim.setDuration(200)
+        anim.finished.connect(self._after_hide)
+        anim.start()
+        self._anim = anim
+
+    def _after_hide(self):
+        self.setVisible(False)
+        self.closed.emit()
+
+    def _set_haiku(self):
+        text = self.haikus[self._index % len(self.haikus)]
+        self._index += 1
+        self.haiku_label.setText(text)
+
+    def _start_inputs(self):
+        for inp in self.inputs:
+            inp.clear()
+            inp.show()
+        self.next_btn.hide()
+        self.confirm_btn.show()
+        self._validate()
+        self.inputs[0].setFocus()
+
+    def _count_words(self, text: str) -> int:
+        return len([w for w in text.strip().split() if w])
+
+    def _validate(self):
+        words = [self._count_words(inp.text()) for inp in self.inputs]
+        ok = (
+            3 <= words[0] <= 5
+            and 4 <= words[1] <= 7
+            and 3 <= words[2] <= 5
+        )
+        self.confirm_btn.setEnabled(ok)
+
+    def _confirm(self):
+        if self.confirm_btn.isEnabled():
+            self.hide_menu()
+            self.confirmed.emit()
+
 # ----- Hovedvindue -----
 
 class NotatorMainWindow(QtWidgets.QMainWindow):
@@ -564,6 +703,12 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.file_menu = FileMenu()
         self.file_menu.accepted.connect(self._file_action)
         vlayout.addWidget(self.file_menu)
+
+        # Menu til sletning med haiku-beskyttelse
+        self.delete_menu = DeleteMenu()
+        self.delete_menu.confirmed.connect(self._delete_current_file)
+        self.delete_menu.closed.connect(lambda: self.current_editor().setFocus())
+        vlayout.addWidget(self.delete_menu)
 
         # Adskillelseslinje over statusbaren
         sep_layout = QtWidgets.QHBoxLayout()
@@ -638,6 +783,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             ("Ctrl+Q", self.close),
             ("Ctrl+,", self.prev_tab),
             ("Ctrl+.", self.next_tab),
+            ("Ctrl+Alt+Backspace", self.request_delete),
             ("Ctrl+T", self.toggle_timer),
             ("Ctrl+R", self.reset_or_stop_timer),
             ("Ctrl+H", self.toggle_hemingway),
@@ -827,6 +973,25 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         anim.setDuration(200)
         anim.start()
         self._tabbar_anim = anim
+
+    # ----- Sletning af filer -----
+
+    def request_delete(self):
+        """Vis menuen der kræver et haiku før sletning."""
+        self.delete_menu.show_menu()
+
+    def _delete_current_file(self):
+        """Slet den aktuelle fil og lukk fanen."""
+        editor = self.current_editor()
+        path = getattr(editor, "file_path", "")
+        if path and os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                self.status.showMessage("Kunne ikke slette filen", 2000)
+                return
+        self.close_current_tab()
+        self.status.showMessage("Ordene falder. Tomheden vinder.", 2000)
 
     # ----- Skalering -----
 
