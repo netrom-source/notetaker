@@ -126,7 +126,9 @@ class NoteTab(QtWidgets.QTextEdit):
                 "Ingen filsti angivet til noten, kan ikke auto-gemme.",
             )
             return
-        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+        dirpath = os.path.dirname(self.file_path)
+        if dirpath:
+            os.makedirs(dirpath, exist_ok=True)
         with open(self.file_path, "w", encoding="utf-8") as f:
             f.write(self.toPlainText())
     def keyPressEvent(self, event: QtGui.QKeyEvent):
@@ -301,6 +303,10 @@ class TimerMenu(QtWidgets.QWidget):
             self.buttons.append(btn)
         self.custom_input = QtWidgets.QLineEdit()
         self.custom_input.setPlaceholderText("Indtast tid")
+        # Diskret grå kant omkring feltet
+        self.custom_input.setStyleSheet(
+            "QLineEdit{border:1px solid #666;background:#1a1a1a;color:#ddd;}"
+        )
         self.custom_input.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.custom_input.returnPressed.connect(self._custom)
         self.custom_input.installEventFilter(self)
@@ -335,6 +341,7 @@ class TimerMenu(QtWidgets.QWidget):
 
     def _choose(self, seconds: int):
         self.changed.emit(seconds)
+        self.custom_input.clear()
         self.hide_menu()
 
     def _custom(self):
@@ -350,6 +357,7 @@ class TimerMenu(QtWidgets.QWidget):
                 "Indtast et tal (minutter) eller med 's' for sekunder")
             return
         self.changed.emit(seconds)
+        self.custom_input.clear()
         self.hide_menu()
 
     def eventFilter(self, obj, event):
@@ -539,6 +547,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.indicator.setFixedHeight(3)
         self.indicator.raise_()
         self.tabs.currentChanged.connect(self._move_indicator)
+        self.tabs.tabBar().installEventFilter(self)
 
         # Statuslinjen nederst viser midlertidige beskeder
         self.status = QtWidgets.QStatusBar()
@@ -575,9 +584,13 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.last_timer_trigger = 0
         self.last_reset = 0
         self.current_duration = 0
+        self.last_save_press = 0
 
         # Genveje
         self._setup_shortcuts()
+
+        # Efter vinduet er vist skal indikatorbjælken justeres
+        QtCore.QTimer.singleShot(0, lambda: self._move_indicator(self.tabs.currentIndex()))
 
     # ----- Hjælpemetoder -----
 
@@ -590,8 +603,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             ("Ctrl+Shift+S", self.save_file_as),
             ("Ctrl+W", self.close_current_tab),
             ("Ctrl+Q", self.close),
-            ("Ctrl,", self.prev_tab),
-            ("Ctrl.", self.next_tab),
+            ("Ctrl+,", self.prev_tab),
+            ("Ctrl+.", self.next_tab),
             ("Ctrl+T", self.toggle_timer),
             ("Ctrl+R", self.reset_or_stop_timer),
             ("Ctrl+H", self.toggle_hemingway),
@@ -603,6 +616,17 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             sc = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
             sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
             sc.activated.connect(slot)
+
+    def eventFilter(self, obj, event):
+        """Hold indikatorbjælken synkroniseret ved resize."""
+        if obj is self.tabs.tabBar() and event.type() in (
+            QtCore.QEvent.Type.Resize,
+            QtCore.QEvent.Type.Show,
+        ):
+            QtCore.QTimer.singleShot(
+                0, lambda idx=self.tabs.currentIndex(): self._move_indicator(idx)
+            )
+        return super().eventFilter(obj, event)
 
     def _style_tabs(self, padding: int = 4):
         """Stil opsætningen af fanelinjen.
@@ -674,7 +698,14 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def save_file(self):
         """Gem den aktuelle fane."""
+        now = time.time()
         editor = self.current_editor()
+        if now - self.last_save_press < 2:
+            self.last_save_press = now
+            self.save_file_as()
+            return
+        self.last_save_press = now
+
         path = getattr(editor, "file_path", None)
         # Hvis filen stadig har et autogenereret navn ønsker vi at
         # spørge brugeren om et bedre navn første gang der gemmes.
@@ -782,11 +813,14 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.timer_widget.update_font(int(16 * self.scale_factor))
         padding = int(4 * self.scale_factor)
         self._style_tabs(padding)
-        self._move_indicator(self.tabs.currentIndex())
         for i in range(self.tabs.count()):
             editor = self.tabs.widget(i)
             editor.setFont(font)
             editor.set_scale(self.scale_factor)
+            editor.highlighter.rehighlight()
+        QtCore.QTimer.singleShot(
+            0, lambda idx=self.tabs.currentIndex(): self._move_indicator(idx)
+        )
 
     # ----- Timerfunktioner -----
 
