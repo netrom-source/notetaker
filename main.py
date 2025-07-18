@@ -18,9 +18,15 @@ from PyQt6 import QtWidgets, QtCore, QtGui
 # findes på systemet. Dermed sikres ensartet udseende
 # selv på minimalistiske installationer som Raspberry Pi.
 def pick_mono_font() -> str:
-    db = QtGui.QFontDatabase()
+    """Returner navnet på en tilgængelig monospace-font.
+
+    QFontDatabase i Qt6 benytter statiske metoder og kræver at der er
+    oprettet en QApplication inden den kan benyttes. Vi antager derfor at
+    funktionen først kaldes efter ``QApplication`` er initialiseret.
+    """
+    families = QtGui.QFontDatabase.families()
     for name in ["JetBrains Mono", "Noto Sans Mono", "Iosevka"]:
-        if name in db.families():
+        if name in families:
             return name
     return QtGui.QFont().defaultFamily()
 
