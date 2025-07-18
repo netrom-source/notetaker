@@ -36,6 +36,9 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 | Hemingway Mode | `Ctrl+H` eller knappen i statuslinjens højre side |
 | Zoom ind/ud | `Ctrl++`, `Ctrl+-` |
 
+Alle genveje oprettes som *ApplicationShortcut*, hvilket betyder at de virker
+globalt i programmet uanset hvilket felt der har fokus.
+
 Dobbelttryk `Ctrl+R` inden for to sekunder stopper timeren helt.
 
 ## Brug
