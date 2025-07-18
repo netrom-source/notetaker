@@ -11,6 +11,7 @@ import os
 import time
 import json
 from PyQt6 import QtWidgets, QtCore, QtGui
+from smbus2 import SMBus
 
 # Rodmappen til programmet bruges til at finde data-mappen
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +33,47 @@ def pick_mono_font() -> str:
         if name in families:
             return name
     return QtGui.QFont().defaultFamily()
+
+# ----- UPS HAT overvågning -----
+
+class UPSMonitor:
+    """Læser batterioplysninger fra Waveshare UPS HAT (E) via I2C.
+
+    Registrene er beskrevet i Waveshares dokumentation. Her anvendes
+    kun de mest relevante: batteriprocent og den anslåede tid tilbage
+    i minutter. Alle adresser er forudsat på I2C-adressen ``0x2d``.
+    """
+
+    ADDRESS = 0x2D
+    REG_PERCENT_L = 0x24
+    REG_PERCENT_H = 0x25
+    REG_TIME_L = 0x28  # resterende afladningstid i minutter
+    REG_TIME_H = 0x29
+
+    def __init__(self, bus: int = 1) -> None:
+        self.bus_num = bus
+        try:
+            self.bus = SMBus(bus)
+        except FileNotFoundError:
+            # I2C er ikke aktiveret eller findes ikke
+            self.bus = None
+
+    def _read_word(self, reg_l: int, reg_h: int) -> int:
+        """Læs to registre og kombiner til et 16-bit tal."""
+        if not self.bus:
+            raise OSError("Ingen I2C bus")
+        low = self.bus.read_byte_data(self.ADDRESS, reg_l)
+        high = self.bus.read_byte_data(self.ADDRESS, reg_h)
+        return (high << 8) | low
+
+    def status(self) -> tuple[int | None, int | None]:
+        """Returner (procent, minutter) eller (None, None) ved fejl."""
+        try:
+            pct = self._read_word(self.REG_PERCENT_L, self.REG_PERCENT_H)
+            mins = self._read_word(self.REG_TIME_L, self.REG_TIME_H)
+        except OSError:
+            return None, None
+        return pct, mins
 
 # Fremhæv Markdown under skrivning
 class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
@@ -1004,6 +1046,18 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.hemi_button.clicked.connect(self.toggle_hemingway)
         self.status.addPermanentWidget(self.hemi_button)
 
+        # Label til batteristatus lige efter Hemingway-knappen
+        self.battery_label = QtWidgets.QLabel()
+        self.battery_label.setStyleSheet("color:#ddd;padding-left:6px;")
+        self.status.addPermanentWidget(self.battery_label)
+
+        # Opsæt overvågning af UPS HAT'en
+        self.ups = UPSMonitor()
+        self._battery_timer = QtCore.QTimer()
+        self._battery_timer.timeout.connect(self.update_battery_status)
+        self._battery_timer.start(30000)  # opdater hvert 30. sekund
+        self.update_battery_status()
+
         # Load tidligere session eller start med en ny fane
         if not self.load_session():
             self.new_tab()
@@ -1052,15 +1106,16 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
             sc.activated.connect(slot)
 
-    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
-        if event.key() == QtCore.Qt.Key.Key_Escape and not event.isAutoRepeat():
-            self.esc_timer.start(1000)
-        super().keyPressEvent(event)
-
-    def keyReleaseEvent(self, event: QtGui.QKeyEvent) -> None:
-        if event.key() == QtCore.Qt.Key.Key_Escape and self.esc_timer.isActive():
-            self.esc_timer.stop()
-        super().keyReleaseEvent(event)
+    def update_battery_status(self) -> None:
+        """Hent data fra UPS HAT'en og opdater labelen."""
+        pct, mins = self.ups.status()
+        if pct is None:
+            self.battery_label.setText("UPS ikke fundet")
+            return
+        hours, minutes = divmod(mins, 60)
+        self.battery_label.setText(
+            f"Batteri: {pct}% ({hours}t {minutes}m tilbage)"
+        )
 
     def eventFilter(self, obj, event):
         """Hold indikatorbjælken synkroniseret ved resize."""
