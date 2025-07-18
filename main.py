@@ -12,6 +12,9 @@ import time
 import json
 from PyQt6 import QtWidgets, QtCore, QtGui
 
+# Rodmappen til programmet bruges til at finde data-mappen
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Hjælpefunktion til at vælge en monospace-font.
 # Programmet forsøger JetBrains Mono først og falder
 # tilbage til Noto Sans Mono eller Iosevka hvis de ikke
@@ -117,6 +120,11 @@ class NoteTab(QtWidgets.QTextEdit):
     def auto_save(self):
         """Gem indholdet i filen uden notifikation."""
         if not self.file_path:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Auto-gem fejlede",
+                "Ingen filsti angivet til noten, kan ikke auto-gemme.",
+            )
             return
         os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
         with open(self.file_path, "w", encoding="utf-8") as f:
@@ -154,21 +162,29 @@ class TimerWidget(QtWidgets.QLabel):
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self._update_time)
         # Ekstra timer der får teksten til at blinke når tiden er gået
-        self._blink_timer = QtCore.QTimer(self)
-        self._blink_timer.timeout.connect(self._blink)
-        self._blink_count = 0
+        self._blink_anim = None
         self._blinking = False
+        self._text_opacity = 1.0
         self.hide()  # Timeren er skjult indtil den startes
+        self._update_style()
+
+    @QtCore.pyqtProperty(float)
+    def textOpacity(self) -> float:
+        return self._text_opacity
+
+    @textOpacity.setter
+    def textOpacity(self, value: float) -> None:
+        self._text_opacity = value
         self._update_style()
 
     def start(self, seconds: int):
         """Start en nedtælling på det angivne antal sekunder."""
         # Stop eventuel blinkning fra en tidligere nedtælling
-        self._blink_timer.stop()
+        if self._blink_anim:
+            self._blink_anim.stop()
         self.setVisible(True)
         self._duration = seconds
         self._remaining = seconds
-        self._blink_count = 0
         self._blinking = False
         self._update_label()
         # Vis at timeren er aktiv med grøn baggrund
@@ -179,7 +195,8 @@ class TimerWidget(QtWidgets.QLabel):
     def reset(self):
         """Stop og nulstil timeren."""
         self._timer.stop()
-        self._blink_timer.stop()
+        if self._blink_anim:
+            self._blink_anim.stop()
         self.hide()
         # Markér at timeren er stoppet
         self._running = False
@@ -204,22 +221,35 @@ class TimerWidget(QtWidgets.QLabel):
         self._remaining = 0
         self._update_label()
         # Start blink-tilstand i 10 sekunder (20 toggles)
-        self._blink_count = 0
         self._blinking = True
         self._update_style()
-        self._blink_timer.start(500)
+        self._start_blink()
         self.timeout.emit()
 
-    def _blink(self):
-        """Skift synlighed for at skabe blinke-effekt."""
-        self.setVisible(not self.isVisible())
-        self._blink_count += 1
-        if self._blink_count >= 20:
-            # Stop efter 10 sekunder
-            self._blink_timer.stop()
-            self.setVisible(True)
-            self._blinking = False
-            self._update_style()
+    def _start_blink(self):
+        """Anvend en fade-animation for blink."""
+        fade_out = QtCore.QPropertyAnimation(self, b"textOpacity")
+        fade_out.setStartValue(1.0)
+        fade_out.setEndValue(0.0)
+        fade_out.setDuration(125)
+        fade_in = QtCore.QPropertyAnimation(self, b"textOpacity")
+        fade_in.setStartValue(0.0)
+        fade_in.setEndValue(1.0)
+        fade_in.setDuration(125)
+        group = QtCore.QSequentialAnimationGroup(self)
+        group.addAnimation(fade_out)
+        group.addAnimation(fade_in)
+        group.setLoopCount(40)  # ca. 10 sekunder
+        group.finished.connect(self._stop_blink)
+        group.start()
+        self._blink_anim = group
+
+    def _stop_blink(self):
+        """Stop blink-animationen og nulstil stil."""
+        self._blinking = False
+        self._text_opacity = 1.0
+        self._blink_anim = None
+        self._update_style()
 
     def update_font(self, size: int):
         """Opdater fontstørrelsen og bevar farverne."""
@@ -234,8 +264,10 @@ class TimerWidget(QtWidgets.QLabel):
             bg = "#556b2f"  # støvet grøn under nedtælling
         else:
             bg = "#1a1a1a"
+        color = QtGui.QColor("#e6e6e6")
+        color.setAlphaF(self._text_opacity)
         self.setStyleSheet(
-            f"background:{bg};color:#e6e6e6;font-size:{self._font_size}pt; padding:4px;"
+            f"background:{bg};color:{color.name(QtGui.QColor.NameFormat.HexArgb)};font-size:{self._font_size}pt; padding:4px;"
         )
 
 class TimerMenu(QtWidgets.QWidget):
@@ -363,6 +395,8 @@ class FileMenu(QtWidgets.QWidget):
         super().__init__(parent)
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
+        self.list = QtWidgets.QListWidget()
+        self.layout().addWidget(self.list)
         self.line = QtWidgets.QLineEdit()
         self.layout().addWidget(self.line)
         btns = QtWidgets.QHBoxLayout()
@@ -375,6 +409,9 @@ class FileMenu(QtWidgets.QWidget):
         self.ok_btn.clicked.connect(self._emit)
         self.cancel_btn.clicked.connect(self.hide_menu)
         self.line.installEventFilter(self)
+        self.list.installEventFilter(self)
+        self.line.returnPressed.connect(self._emit)
+        self.list.itemActivated.connect(self._emit)
         self.setMaximumHeight(0)
         self.hide()
 
@@ -382,8 +419,25 @@ class FileMenu(QtWidgets.QWidget):
         """Konfigurer menuen til open eller save."""
         self.mode = mode
         self.ok_btn.setText("Åbn" if mode == "open" else "Gem")
-        self.line.setText(default)
-        self.line.selectAll()
+        if mode == "open":
+            self.line.hide()
+            self.list.show()
+            self.list.clear()
+            data_dir = os.path.join(ROOT_DIR, "data")
+            try:
+                files = [f for f in os.listdir(data_dir) if f.endswith(".md")]
+            except FileNotFoundError:
+                files = []
+            for f in files:
+                self.list.addItem(f)
+            if files:
+                self.list.setCurrentRow(0)
+            self.list.setFocus()
+        else:
+            self.list.hide()
+            self.line.show()
+            self.line.setText(default)
+            self.line.selectAll()
 
     def show_menu(self):
         self.setVisible(True)
@@ -394,7 +448,10 @@ class FileMenu(QtWidgets.QWidget):
         anim.setDuration(200)
         anim.start()
         self._anim = anim
-        self.line.setFocus()
+        if self.mode == "open":
+            self.list.setFocus()
+        else:
+            self.line.setFocus()
 
     def hide_menu(self):
         end = self.maximumHeight()
@@ -407,7 +464,13 @@ class FileMenu(QtWidgets.QWidget):
         self._anim = anim
 
     def _emit(self):
-        path = self.line.text().strip()
+        if self.mode == "open":
+            item = self.list.currentItem()
+            if not item:
+                return
+            path = os.path.join(ROOT_DIR, "data", item.text())
+        else:
+            path = self.line.text().strip()
         if path:
             self.accepted.emit(path)
         self.hide_menu()
@@ -436,6 +499,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.font_family = pick_mono_font()
         base_font = QtGui.QFont(self.font_family, 10)
         self.setFont(base_font)
+
+        # Standard zoom-niveau
+        self.scale_factor = 1.0
 
         # Central widget indeholder timer og faner
         central = QtWidgets.QWidget()
@@ -500,9 +566,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.hemi_button.clicked.connect(self.toggle_hemingway)
         self.status.addPermanentWidget(self.hemi_button)
 
-        # Først angiv standard skalering
-        self.scale_factor = 1.0
-
         # Load tidligere session eller start med en ny fane
         if not self.load_session():
             self.new_tab()
@@ -551,9 +614,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         bar = self.tabs.tabBar()
         bar.setDrawBase(False)
         self.tabs.setDocumentMode(True)
+        font_size = max(6, round(10 * self.scale_factor))
         self.tabs.setStyleSheet(
             "QTabBar {background:#1a1a1a;}"
-            f"QTabBar::tab {{background:transparent;padding:{padding}px {padding*3}px;color:#aaa;border:none;}}"
+            f"QTabBar::tab {{background:transparent;padding:{padding}px {padding*3}px;color:#aaa;border:none;font-size:{font_size}pt;}}"
             "QTabBar::tab:selected {color:#fff;}"
             "QTabWidget::pane {border:none;background:#1a1a1a;}"
         )
@@ -578,14 +642,15 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def _generate_filename(self) -> str:
         """Lav et tidsstempel-navn i mappen data."""
-        os.makedirs("data", exist_ok=True)
+        data_dir = os.path.join(ROOT_DIR, "data")
+        os.makedirs(data_dir, exist_ok=True)
         base = time.strftime("%H%M-%d%m%y")
         name = f"{base}.md"
-        path = os.path.join("data", name)
+        path = os.path.join(data_dir, name)
         counter = 1
         while os.path.exists(path):
             name = f"{base}-{counter}.md"
-            path = os.path.join("data", name)
+            path = os.path.join(data_dir, name)
             counter += 1
         return path
 
