@@ -53,7 +53,8 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
         self.heading_format.setFontWeight(QtGui.QFont.Weight.Bold)
         self.heading_format.setForeground(QtGui.QBrush(QtGui.QColor("#e0e0e0")))
 
-        # Markdown-symboler (#, *, **) skal tones ned i en grå farve
+        # Markdown-symboler (#, *, **) tones ned i en grå farve men skal
+        # beholde samme skriftstørrelse som den omkringliggende tekst.
         self.marker_format = QtGui.QTextCharFormat()
         self.marker_format.setForeground(QtGui.QColor("#666"))
 
@@ -92,11 +93,13 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
             fmt = QtGui.QTextCharFormat(self.heading_format)
             base = self.document().defaultFont().pointSizeF()
             # Jo færre #, jo større skrift
-            scale = {1:2.0, 2:1.7, 3:1.5, 4:1.3, 5:1.2, 6:1.1}.get(level, 1)
+            scale = {1: 2.0, 2: 1.7, 3: 1.5, 4: 1.3, 5: 1.2, 6: 1.1}.get(level, 1)
             fmt.setFontPointSize(base * scale)
             self.setFormat(0, len(text), fmt)
-            # selve # symbolerne nedtones
-            self.setFormat(match.capturedStart(1), level, self.marker_format)
+            # selve #-symbolerne skal følge samme størrelse og vægt, blot i grå
+            marker_fmt = QtGui.QTextCharFormat(fmt)
+            marker_fmt.setForeground(self.marker_format.foreground())
+            self.setFormat(match.capturedStart(1), level, marker_fmt)
 
         bullet = QtCore.QRegularExpression(r"^\s*\*\s+(.*)")
         match = bullet.match(text)
@@ -731,7 +734,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Notator")
-        self.resize(800, 600)
+        # Standardstørrelse inden fuldskærm
+        self.resize(1280, 400)
+        # Vis i frameless fullscreen
+        self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint)
         # Global font for hele applikationen. ``pick_mono_font`` sikrer
         # at der vælges en monospace-font som faktisk findes.
         self.font_family = pick_mono_font()
@@ -796,7 +802,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
         # Understregning som flyttes når aktiv fane skifter
         self.indicator = QtWidgets.QFrame(self.tabs.tabBar())
-        self.indicator.setStyleSheet("background:#4caf50;")
+        # Mørk grågrøn farve i stedet for den tidligere klare grønne
+        self.indicator.setStyleSheet("background:#334d33;")
         self.indicator.setFixedHeight(3)
         self.indicator.raise_()
         self.tabs.currentChanged.connect(self._move_indicator)
@@ -844,6 +851,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
         # Efter vinduet er vist skal indikatorbjælken justeres
         QtCore.QTimer.singleShot(0, lambda: self._move_indicator(self.tabs.currentIndex()))
+        # Sørg for fokus i skrivefeltet ved opstart
+        QtCore.QTimer.singleShot(0, lambda: self.current_editor().setFocus())
 
     # ----- Hjælpemetoder -----
 
@@ -881,6 +890,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 0, lambda idx=self.tabs.currentIndex(): self._move_indicator(idx)
             )
         return super().eventFilter(obj, event)
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if self.timer_menu.isVisible() and self.timer_menu.parent():
+            self.timer_menu.setFixedWidth(int(self.width() * 0.33))
 
     def _style_tabs(self, padding: int = 4):
         """Stil opsætningen af fanelinjen.
@@ -1049,7 +1063,17 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             bar.setVisible(True)
             anim.setStartValue(0)
             anim.setEndValue(end)
+            # Placer bjælken under fanelinjen og lad den glide op
+            rect = bar.tabRect(self.tabs.currentIndex())
+            start_rect = QtCore.QRect(rect.left(), end, rect.width(), 3)
+            self.indicator.setGeometry(start_rect)
             self.indicator.show()
+            ind_anim = QtCore.QPropertyAnimation(self.indicator, b"geometry")
+            ind_anim.setDuration(200)
+            ind_anim.setStartValue(start_rect)
+            ind_anim.setEndValue(QtCore.QRect(rect.left(), end - 3, rect.width(), 3))
+            ind_anim.start()
+            self._indicator_anim = ind_anim
             anim.finished.connect(lambda: self._move_indicator(self.tabs.currentIndex()))
         anim.setDuration(200)
         anim.start()
@@ -1089,6 +1113,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.setFont(font)
         self.tabs.tabBar().setFont(font)
         self.status.setFont(font)
+        self.timer_menu.setFont(font)
+        self.file_menu.setFont(font)
+        self.delete_menu.setFont(font)
         self.timer_widget.update_font(int(16 * self.scale_factor))
         padding = int(4 * self.scale_factor)
         self._style_tabs(padding)
@@ -1097,6 +1124,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             editor.setFont(font)
             editor.set_scale(self.scale_factor)
             editor.highlighter.rehighlight()
+        if self.timer_menu.isVisible() and self.timer_menu.parent():
+            self.timer_menu.setFixedWidth(int(self.width() * 0.33))
         QtCore.QTimer.singleShot(
             0, lambda idx=self.tabs.currentIndex(): self._move_indicator(idx)
         )
@@ -1222,7 +1251,7 @@ def main():
         "QPushButton:disabled{color:#555;background:#222;}"
     )
     window = NotatorMainWindow()
-    window.show()
+    window.showFullScreen()
     sys.exit(app.exec())
 
 if __name__ == "__main__":
