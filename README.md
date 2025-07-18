@@ -12,6 +12,7 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 - Hemingway Mode som forhindrer sletning og baglæns navigation
 - Knappen til Hemingway Mode findes i statuslinjen
 - UI-skalering med `Ctrl++` og `Ctrl+-`
+- Viser batteristatus i statuslinjen via Waveshare UPS HAT
 - Fanelinje kan skjules med `Ctrl+Alt+.`
 - Fanelinjen viser en mørk grågrøn bjælke under den aktive fane
 - Live-rendering af Markdown-overskrifter direkte i teksten
@@ -50,6 +51,25 @@ python3 main.py
 Programmet starter i frameless fuldskærm og genskaber automatisk tidligere åbnede noter.
 
 
+## Batteristatus (UPS HAT E)
+Programmet kan vise batteriets procent og estimeret tid tilbage når det kører
+med Waveshare UPS HAT (E).
+
+### Krævede biblioteker
+- `smbus2` til I2C-kommunikation: `pip install smbus2`
+- `python3-smbus` kan også installeres via apt.
+
+### Opsætning af I2C på Raspberry Pi
+1. Kør `sudo raspi-config`.
+2. Vælg `Interface Options` → `I2C` og aktiver.
+3. Genstart din Raspberry Pi.
+
+### Eksempel
+Statuslinjen opdateres hvert halve minut, fx:
+
+```
+Batteri: 87% (2t 15m tilbage)
+```
 ## Begrænsninger
 - Programmet kræver at Qt-platform pluginnet `xcb` er installeret for at køre under X11. På nogle systemer kan dette mangle og forhindre opstart.
 - Der er ingen forsøg på konfliktløsning hvis to processer redigerer den samme fil samtidigt.
