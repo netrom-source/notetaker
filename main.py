@@ -10,6 +10,7 @@ import sys
 import os
 import time
 import json
+from glob import glob
 from PyQt6 import QtWidgets, QtCore, QtGui
 from smbus2 import SMBus
 
@@ -565,12 +566,17 @@ class FileMenu(QtWidgets.QWidget):
             self.line.selectAll()
 
     def show_menu(self):
+        if not self.parent():
+            return
+        parent = self.parent()
+        width = int(parent.width() * 0.5)
+        self.setFixedWidth(width)
+        start = QtCore.QRect((parent.width() - width) // 2, parent.height(), width, parent.height())
+        end = QtCore.QRect((parent.width() - width) // 2, 0, width, parent.height())
+        self.setGeometry(start)
         self.setVisible(True)
-        if self.parent():
-            self.setFixedWidth(int(self.parent().width() * 0.5))
-        end = self.sizeHint().height()
-        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
-        anim.setStartValue(0)
+        anim = QtCore.QPropertyAnimation(self, b"geometry")
+        anim.setStartValue(start)
         anim.setEndValue(end)
         anim.setDuration(200)
         anim.start()
@@ -581,10 +587,14 @@ class FileMenu(QtWidgets.QWidget):
             self.line.setFocus()
 
     def hide_menu(self):
-        end = self.maximumHeight()
-        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
-        anim.setStartValue(end)
-        anim.setEndValue(0)
+        if not self.parent():
+            self.hide()
+            return
+        parent = self.parent()
+        end_rect = QtCore.QRect((self.x()), parent.height(), self.width(), parent.height())
+        anim = QtCore.QPropertyAnimation(self, b"geometry")
+        anim.setStartValue(self.geometry())
+        anim.setEndValue(end_rect)
         anim.setDuration(200)
         anim.finished.connect(self._after_hide)
         anim.start()
@@ -628,12 +638,9 @@ class FileMenu(QtWidgets.QWidget):
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFont(font)
         if self.isVisible() and self.parent():
-            self.setFixedWidth(int(width * 0.5))
-            self.setMaximumHeight(self.sizeHint().height())
-            self.setMaximumHeight(self.sizeHint().height())
-            self.setMaximumHeight(self.sizeHint().height())
-            self.setMaximumHeight(self.sizeHint().height())
-            self.setMaximumHeight(self.sizeHint().height())
+            w = int(width * 0.5)
+            self.setFixedWidth(w)
+            self.setGeometry((self.parent().width() - w) // 2, 0, w, self.parent().height())
 
 
 class DeleteMenu(QtWidgets.QWidget):
@@ -758,9 +765,15 @@ class DeleteMenu(QtWidgets.QWidget):
         self.installEventFilter(self)
 
     def show_menu(self):
+        if not self.parent():
+            return
+        parent = self.parent()
+        width = int(parent.width() * 0.5)
+        self.setFixedWidth(width)
+        start = QtCore.QRect((parent.width() - width) // 2, parent.height(), width, parent.height())
+        end = QtCore.QRect((parent.width() - width) // 2, 0, width, parent.height())
+        self.setGeometry(start)
         self.setVisible(True)
-        if self.parent():
-            self.setFixedWidth(int(self.parent().width() * 0.5))
         self._set_haiku()
         for inp in self.inputs:
             inp.hide()
@@ -770,9 +783,8 @@ class DeleteMenu(QtWidgets.QWidget):
         self.intro.show()
         self.haiku_label.show()
         self.instruction.hide()
-        end = self.sizeHint().height()
-        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
-        anim.setStartValue(0)
+        anim = QtCore.QPropertyAnimation(self, b"geometry")
+        anim.setStartValue(start)
         anim.setEndValue(end)
         anim.setDuration(200)
         anim.start()
@@ -780,10 +792,14 @@ class DeleteMenu(QtWidgets.QWidget):
         self.next_btn.setFocus()
 
     def hide_menu(self):
-        end = self.maximumHeight()
-        anim = QtCore.QPropertyAnimation(self, b"maximumHeight")
-        anim.setStartValue(end)
-        anim.setEndValue(0)
+        if not self.parent():
+            self.hide()
+            return
+        parent = self.parent()
+        end_rect = QtCore.QRect(self.x(), parent.height(), self.width(), parent.height())
+        anim = QtCore.QPropertyAnimation(self, b"geometry")
+        anim.setStartValue(self.geometry())
+        anim.setEndValue(end_rect)
         anim.setDuration(200)
         anim.finished.connect(self._after_hide)
         anim.start()
@@ -846,12 +862,13 @@ class DeleteMenu(QtWidgets.QWidget):
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFont(font)
         if self.isVisible() and self.parent():
-            self.setFixedWidth(int(width * 0.5))
-            self.setMaximumHeight(self.sizeHint().height())
+            w = int(width * 0.5)
+            self.setFixedWidth(w)
+            self.setGeometry((self.parent().width() - w) // 2, 0, w, self.parent().height())
 
 
 class PowerMenu(QtWidgets.QWidget):
-    """Fuldskærmsmenu der aktiveres ved at holde Escape nede."""
+    """Fuldskærmsmenu til strømstyring."""
 
     closed = QtCore.pyqtSignal()
 
@@ -859,7 +876,7 @@ class PowerMenu(QtWidgets.QWidget):
         super().__init__(parent)
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(40, 40, 40, 40)
-        self.layout().setSpacing(10)
+        self.layout().setSpacing(6)
         self.setStyleSheet("background:#1a1a1a;")
 
         actions = [
@@ -960,12 +977,20 @@ class PowerMenu(QtWidgets.QWidget):
             if event.key() == QtCore.Qt.Key.Key_Escape:
                 self.hide_menu()
                 return True
-            if obj in self.buttons and event.key() in (
-                QtCore.Qt.Key.Key_Return,
-                QtCore.Qt.Key.Key_Enter,
-            ):
-                obj.click()
-                return True
+            if obj in self.buttons:
+                idx = self.buttons.index(obj)
+                if event.key() in (
+                    QtCore.Qt.Key.Key_Return,
+                    QtCore.Qt.Key.Key_Enter,
+                ):
+                    obj.click()
+                    return True
+                if event.key() == QtCore.Qt.Key.Key_Down:
+                    self.buttons[(idx + 1) % len(self.buttons)].setFocus()
+                    return True
+                if event.key() == QtCore.Qt.Key.Key_Up:
+                    self.buttons[(idx - 1) % len(self.buttons)].setFocus()
+                    return True
         return super().eventFilter(obj, event)
 
 
@@ -1030,8 +1055,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         base_font = QtGui.QFont(self.font_family, 10)
         self.setFont(base_font)
 
-        # Standard zoom-niveau
-        self.scale_factor = 1.0
+        # Fast zoom-niveau svarende til fem forstørrelses-trin
+        self.scale_factor = 1.1 ** 5
 
         # Central widget indeholder timer og faner
         central = QtWidgets.QWidget()
@@ -1061,22 +1086,22 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         vlayout.addWidget(self.tabs)
         self._style_tabs()
 
-        # Filmenu til åben/gem som glider op fra bunden
-        self.file_menu = FileMenu()
+        # Filmenu til åben/gem som overlay
+        self.file_menu = FileMenu(central)
         self.file_menu.accepted.connect(self._file_action)
         self.file_menu.closed.connect(lambda: self.current_editor().setFocus())
-        vlayout.addWidget(self.file_menu, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.file_menu.hide()
 
         # Menu til sletning med haiku-beskyttelse
-        self.delete_menu = DeleteMenu()
+        self.delete_menu = DeleteMenu(central)
         self.delete_menu.confirmed.connect(self._delete_current_file)
         self.delete_menu.closed.connect(lambda: self.current_editor().setFocus())
-        vlayout.addWidget(self.delete_menu, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.delete_menu.hide()
 
-        # Menu som vises ved at holde Escape nede
+        # Menu til strømfunktioner
         self.power_menu = PowerMenu(central)
         self.power_menu.closed.connect(lambda: self.current_editor().setFocus())
-        vlayout.addWidget(self.power_menu)
+        self.power_menu.hide()
 
         # Adskillelseslinje over statusbaren med blød skygge
         sep_layout = QtWidgets.QHBoxLayout()
@@ -1133,6 +1158,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Load tidligere session eller start med en ny fane
         if not self.load_session():
             self.new_tab()
+            self.apply_fixed_scale()
 
         # Interne tilstande
         self.hemingway = False
@@ -1140,14 +1166,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.last_reset = 0
         self.current_duration = 0
         self.last_save_press = 0
-        self.esc_timer = QtCore.QTimer(self)
-        self.esc_timer.setSingleShot(True)
-        self.esc_timer.timeout.connect(self.power_menu.show_menu)
 
         # Genveje
         self._setup_shortcuts()
 
-        # Lyt globalt efter tastetryk for bl.a. Escape-hold
+        # Lyt globalt efter tabbar-resize og andre events
         QtWidgets.QApplication.instance().installEventFilter(self)
 
         # Efter vinduet er vist skal indikatorbjælken justeres
@@ -1173,8 +1196,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             ("Ctrl+R", self.reset_or_stop_timer),
             ("Ctrl+H", self.toggle_hemingway),
             ("Ctrl+Alt+.", self.toggle_tabbar),
-            ("Ctrl++", self.zoom_in),
-            ("Ctrl+-", self.zoom_out),
+            ("F12", self.brightness_up),
+            ("F11", self.brightness_down),
             ("Ctrl+Escape", self.power_menu.show_menu),
         ]
         self.shortcuts = []
@@ -1202,12 +1225,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def eventFilter(self, obj, event):
         """Overvåg nøgler og tabbar for at holde layoutet stabilt."""
-        if event.type() == QtCore.QEvent.Type.KeyPress and event.key() == QtCore.Qt.Key.Key_Escape:
-            menus = [self.file_menu, self.delete_menu, self.timer_menu, self.power_menu]
-            if not any(m.isVisible() for m in menus):
-                self.esc_timer.start(600)
-        if event.type() == QtCore.QEvent.Type.KeyRelease and event.key() == QtCore.Qt.Key.Key_Escape:
-            self.esc_timer.stop()
 
         if obj is self.tabs.tabBar() and event.type() in (
             QtCore.QEvent.Type.Resize,
@@ -1226,6 +1243,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             self.file_menu.update_scale(self.font(), self.width())
         if self.delete_menu.isVisible() and self.delete_menu.parent():
             self.delete_menu.update_scale(self.font(), self.width())
+        if self.power_menu.isVisible() and self.power_menu.parent():
+            self.power_menu.update_scale(self.font(), self.width(), self.height())
 
     def _style_tabs(self, padding: int = 4):
         """Stil opsætningen af fanelinjen.
@@ -1461,16 +1480,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         dlg.resize(int(self.width() * 0.6), int(self.height() * 0.6))
         dlg.exec()
 
-    # ----- Skalering -----
+    # ----- Fast skalering -----
 
-    def zoom_in(self):
-        self._apply_scale(1.1)
-
-    def zoom_out(self):
-        self._apply_scale(0.9)
-
-    def _apply_scale(self, factor: float):
-        self.scale_factor *= factor
+    def apply_fixed_scale(self):
+        """Sæt fast fontstørrelse og layout ud fra ``scale_factor``."""
         font_size = max(6, round(10 * self.scale_factor))
         font = QtGui.QFont(self.font_family, font_size)
         self.setFont(font)
@@ -1488,14 +1501,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             editor.setFont(font)
             editor.set_scale(self.scale_factor)
             editor.highlighter.rehighlight()
-        if self.timer_menu.isVisible() and self.timer_menu.parent():
-            self.timer_menu.update_scale(font, self.width())
-        if self.file_menu.isVisible() and self.file_menu.parent():
-            self.file_menu.update_scale(font, self.width())
-        if self.delete_menu.isVisible() and self.delete_menu.parent():
-            self.delete_menu.update_scale(font, self.width())
-        if self.power_menu.isVisible() and self.power_menu.parent():
-            self.power_menu.update_scale(font, self.width(), self.height())
         QtCore.QTimer.singleShot(
             0, lambda idx=self.tabs.currentIndex(): self._move_indicator(idx)
         )
@@ -1535,6 +1540,32 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         """Vis besked når tiden er gået."""
         self.status.showMessage("Tiden er gået", 5000)
 
+    # ----- Lysstyrke -----
+
+    def _brightness_path(self) -> str | None:
+        paths = glob("/sys/class/backlight/*/brightness")
+        return paths[0] if paths else None
+
+    def _adjust_brightness(self, delta: int) -> None:
+        path = self._brightness_path()
+        if not path:
+            self.status.showMessage("Ingen baggrundsbelysning fundet", 2000)
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                val = int(f.read().strip())
+            val = max(0, min(255, val + delta))
+            os.system(f"echo {val} | sudo tee {path} > /dev/null")
+            self.status.showMessage(f"Lysstyrke {val}", 1000)
+        except OSError:
+            self.status.showMessage("Kan ikke justere lysstyrke", 2000)
+
+    def brightness_up(self):
+        self._adjust_brightness(10)
+
+    def brightness_down(self):
+        self._adjust_brightness(-10)
+
     # ----- Hemmingway-tilstand -----
 
     def toggle_hemingway(self):
@@ -1563,15 +1594,14 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         """Gemmer information om den aktuelle session.
 
         Denne metode kaldes når vinduet lukkes og skriver en JSON-fil
-        med stien til alle åbne filer, hvilken fane der var aktiv samt
-        det nuværende zoom-niveau. Ved næste opstart kan ``load_session``
-        bruge disse oplysninger til at genskabe arbejdsfladen.
+        med stien til alle åbne filer samt vinduets placering. Ved næste
+        opstart kan ``load_session`` bruge disse oplysninger til at
+        genskabe arbejdsfladen.
         """
         os.makedirs(DATA_DIR, exist_ok=True)
         data = {
             "files": [self.tabs.widget(i).file_path for i in range(self.tabs.count())],
             "current": self.tabs.currentIndex(),
-            "scale": self.scale_factor,
             "size": [self.width(), self.height()],
             "pos": [self.x(), self.y()],
         }
@@ -1603,14 +1633,13 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 editor.setText(text)
                 self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
         self.tabs.setCurrentIndex(min(data.get("current", 0), self.tabs.count()-1))
-        self.scale_factor = data.get("scale", 1.0)
         size = data.get("size")
         if size:
             self.resize(*size)
         pos = data.get("pos")
         if pos:
             self.move(*pos)
-        self._apply_scale(1)  # anvend nuværende skala
+        self.apply_fixed_scale()
         self._move_indicator(self.tabs.currentIndex())
         return True
 
