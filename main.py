@@ -370,7 +370,7 @@ class TimerMenu(QtWidgets.QWidget):
         super().__init__(parent)
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Fixed,
-            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Preferred,
         )
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
@@ -673,7 +673,7 @@ class DeleteMenu(QtWidgets.QWidget):
         super().__init__(parent)
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Fixed,
-            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Preferred,
         )
         self._index = 0
         self.setLayout(QtWidgets.QVBoxLayout())
@@ -866,11 +866,11 @@ class PowerMenu(QtWidgets.QWidget):
             ("Sluk maskinen", lambda: os.system("systemctl poweroff")),
             ("Genstart maskinen", lambda: os.system("systemctl reboot")),
             ("Luk X11", lambda: os.system("pkill X")),
-            ("Aktiver/Deaktiver WIFI", self._toggle_wifi),
+            ("WiFi", self._toggle_wifi),
             ("\u00c5bn terminalvindue (LXTerminal)", lambda: os.system("lxterminal &")),
             ("\u00c5bn README", self._open_readme),
         ]
-        self.wifi_enabled = True
+        self.wifi_enabled = self._wifi_status()
         self.buttons = []
         for text, func in actions:
             btn = QtWidgets.QPushButton(text)
@@ -879,6 +879,9 @@ class PowerMenu(QtWidgets.QWidget):
             btn.installEventFilter(self)
             self.layout().addWidget(btn)
             self.buttons.append(btn)
+        # Gem reference til WiFi-knappen for senere opdatering
+        self.wifi_btn = self.buttons[3]
+        self._update_wifi_text()
 
         self.setVisible(False)
         self.setGeometry(0, 0, 0, 0)
@@ -887,10 +890,23 @@ class PowerMenu(QtWidgets.QWidget):
         cmd = "nmcli radio wifi off" if self.wifi_enabled else "nmcli radio wifi on"
         os.system(cmd)
         self.wifi_enabled = not self.wifi_enabled
+        self._update_wifi_text()
+
+    def _wifi_status(self) -> bool:
+        """Returner True hvis WiFi er tændt."""
+        status = os.popen("nmcli radio wifi").read().strip().lower()
+        return status == "enabled"
+
+    def _update_wifi_text(self):
+        state = "ON" if self.wifi_enabled else "OFF"
+        if hasattr(self, "wifi_btn"):
+            self.wifi_btn.setText(f"WiFi ({state})")
 
     def _open_readme(self):
-        path = os.path.join(ROOT_DIR, "README.md")
-        os.system(f"xdg-open '{path}' &")
+        wnd = self.window()
+        if hasattr(wnd, "open_readme"):
+            wnd.open_readme()
+        self.hide_menu()
 
     def show_menu(self):
         if not self.parent():
@@ -898,6 +914,9 @@ class PowerMenu(QtWidgets.QWidget):
         parent = self.parent()
         self.setGeometry(0, parent.height(), parent.width(), parent.height())
         self.setVisible(True)
+        wnd = self.window()
+        if hasattr(wnd, "set_shortcuts_enabled"):
+            wnd.set_shortcuts_enabled(False)
         anim = QtCore.QPropertyAnimation(self, b"geometry")
         anim.setStartValue(QtCore.QRect(0, parent.height(), parent.width(), parent.height()))
         anim.setEndValue(QtCore.QRect(0, 0, parent.width(), parent.height()))
@@ -922,7 +941,19 @@ class PowerMenu(QtWidgets.QWidget):
 
     def _after_hide(self):
         self.setVisible(False)
+        wnd = self.window()
+        if hasattr(wnd, "set_shortcuts_enabled"):
+            wnd.set_shortcuts_enabled(True)
         self.closed.emit()
+
+    def update_scale(self, font: QtGui.QFont, width: int, height: int):
+        """Opdater font og størrelse efter zoom."""
+        self.setFont(font)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFont(font)
+        if self.isVisible() and self.parent():
+            self.setGeometry(0, 0, width, height)
+            self.layout().activate()
         
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.Type.KeyPress:
@@ -1146,10 +1177,17 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             ("Ctrl+-", self.zoom_out),
             ("Ctrl+Escape", self.power_menu.show_menu),
         ]
+        self.shortcuts = []
         for seq, slot in shortcuts:
             sc = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
             sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
             sc.activated.connect(slot)
+            self.shortcuts.append(sc)
+
+    def set_shortcuts_enabled(self, enabled: bool) -> None:
+        """Aktiver eller deaktiver alle globale genveje."""
+        for sc in getattr(self, "shortcuts", []):
+            sc.setEnabled(enabled)
 
     def update_battery_status(self) -> None:
         """Hent data fra UPS HAT'en og opdater labelen."""
@@ -1402,6 +1440,27 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.close_current_tab()
         self.status.showMessage("Ordene falder. Tomheden vinder.", 2000)
 
+    def open_readme(self):
+        """Vis README-filen i en skrivebeskyttet dialog."""
+        path = os.path.join(ROOT_DIR, "README.md")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            self.status.showMessage("Kunne ikke åbne README", 2000)
+            return
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("README")
+        dlg.setLayout(QtWidgets.QVBoxLayout())
+        view = QtWidgets.QPlainTextEdit()
+        view.setReadOnly(True)
+        view.setPlainText(text)
+        view.setFont(QtGui.QFont(self.font_family, max(6, round(10 * self.scale_factor))))
+        view.setStyleSheet("background:#1a1a1a;color:#e6e6e6;")
+        dlg.layout().addWidget(view)
+        dlg.resize(int(self.width() * 0.6), int(self.height() * 0.6))
+        dlg.exec()
+
     # ----- Skalering -----
 
     def zoom_in(self):
@@ -1420,6 +1479,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.timer_menu.update_scale(font, self.width())
         self.file_menu.update_scale(font, self.width())
         self.delete_menu.update_scale(font, self.width())
+        self.power_menu.update_scale(font, self.width(), self.height())
         self.timer_widget.update_font(int(16 * self.scale_factor))
         padding = int(4 * self.scale_factor)
         self._style_tabs(padding)
@@ -1434,6 +1494,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             self.file_menu.update_scale(font, self.width())
         if self.delete_menu.isVisible() and self.delete_menu.parent():
             self.delete_menu.update_scale(font, self.width())
+        if self.power_menu.isVisible() and self.power_menu.parent():
+            self.power_menu.update_scale(font, self.width(), self.height())
         QtCore.QTimer.singleShot(
             0, lambda idx=self.tabs.currentIndex(): self._move_indicator(idx)
         )
@@ -1511,6 +1573,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             "current": self.tabs.currentIndex(),
             "scale": self.scale_factor,
             "size": [self.width(), self.height()],
+            "pos": [self.x(), self.y()],
         }
         with open(SESSION_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f)
@@ -1544,6 +1607,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         size = data.get("size")
         if size:
             self.resize(*size)
+        pos = data.get("pos")
+        if pos:
+            self.move(*pos)
         self._apply_scale(1)  # anvend nuværende skala
         self._move_indicator(self.tabs.currentIndex())
         return True
