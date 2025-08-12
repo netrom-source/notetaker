@@ -1191,7 +1191,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             ("Ctrl+Q", self.close),
             ("Ctrl+,", self.prev_tab),
             ("Ctrl+.", self.next_tab),
-            ("Ctrl+Alt+Backspace", self.request_delete),
+            # "Ctrl+Alt+Backspace" bruges traditionelt til at dr\u00e6be X11 og
+            # kan derfor v\u00e6re deaktiveret p\u00e5 nogle systemer. Vi registrerer
+            # derfor ogs\u00e5 en reserve-genvej.
+            (["Ctrl+Alt+Backspace", "Ctrl+Alt+D"], self.request_delete),
             ("Ctrl+T", self.toggle_timer),
             ("Ctrl+R", self.reset_or_stop_timer),
             ("Ctrl+H", self.toggle_hemingway),
@@ -1201,11 +1204,18 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             ("Ctrl+Escape", self.power_menu.show_menu),
         ]
         self.shortcuts = []
-        for seq, slot in shortcuts:
-            sc = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
-            sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
-            sc.activated.connect(slot)
-            self.shortcuts.append(sc)
+        for seqs, slot in shortcuts:
+            if isinstance(seqs, (list, tuple)):
+                sequences = seqs
+            else:
+                sequences = [seqs]
+            for seq in sequences:
+                act = QtGui.QAction(self)
+                act.setShortcut(QtGui.QKeySequence(seq))
+                act.setShortcutContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
+                act.triggered.connect(slot)
+                self.addAction(act)
+                self.shortcuts.append(act)
 
     def set_shortcuts_enabled(self, enabled: bool) -> None:
         """Aktiver eller deaktiver alle globale genveje."""
