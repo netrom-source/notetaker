@@ -1205,17 +1205,13 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         ]
         self.shortcuts = []
         for seqs, slot in shortcuts:
-            if isinstance(seqs, (list, tuple)):
-                sequences = seqs
-            else:
-                sequences = [seqs]
+            sequences = seqs if isinstance(seqs, (list, tuple)) else [seqs]
             for seq in sequences:
-                act = QtGui.QAction(self)
-                act.setShortcut(QtGui.QKeySequence(seq))
-                act.setShortcutContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
-                act.triggered.connect(slot)
-                self.addAction(act)
-                self.shortcuts.append(act)
+                sc = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
+                sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
+                sc.setAutoRepeat(False)
+                sc.activated.connect(slot)
+                self.shortcuts.append(sc)
 
     def set_shortcuts_enabled(self, enabled: bool) -> None:
         """Aktiver eller deaktiver alle globale genveje."""
