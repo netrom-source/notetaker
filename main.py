@@ -407,6 +407,7 @@ class TimerMenu(QtWidgets.QWidget):
     def show_menu(self):
         """Vis menuen med en let slide-animation."""
         self.setVisible(True)
+        self.raise_()
         if self.parent():
             self.setFixedWidth(int(self.parent().width() * 0.33))
         end = self.sizeHint().height()
@@ -575,6 +576,7 @@ class FileMenu(QtWidgets.QWidget):
         end = QtCore.QRect((parent.width() - width) // 2, 0, width, parent.height())
         self.setGeometry(start)
         self.setVisible(True)
+        self.raise_()
         anim = QtCore.QPropertyAnimation(self, b"geometry")
         anim.setStartValue(start)
         anim.setEndValue(end)
@@ -774,6 +776,7 @@ class DeleteMenu(QtWidgets.QWidget):
         end = QtCore.QRect((parent.width() - width) // 2, 0, width, parent.height())
         self.setGeometry(start)
         self.setVisible(True)
+        self.raise_()
         self._set_haiku()
         for inp in self.inputs:
             inp.hide()
@@ -931,6 +934,7 @@ class PowerMenu(QtWidgets.QWidget):
         parent = self.parent()
         self.setGeometry(0, parent.height(), parent.width(), parent.height())
         self.setVisible(True)
+        self.raise_()
         wnd = self.window()
         if hasattr(wnd, "set_shortcuts_enabled"):
             wnd.set_shortcuts_enabled(False)
