@@ -536,7 +536,6 @@ class FileMenu(QtWidgets.QWidget):
         self.list.installEventFilter(self)
         self.line.returnPressed.connect(self._emit)
         self.list.itemActivated.connect(self._emit)
-        self.setMaximumHeight(0)
         self.hide()
 
     def setup(self, mode: str, default: str = ""):
@@ -762,7 +761,6 @@ class DeleteMenu(QtWidgets.QWidget):
         self.layout().addLayout(btn_row)
         self.confirm_btn.hide()
 
-        self.setMaximumHeight(0)
         self.hide()
         self.installEventFilter(self)
 
