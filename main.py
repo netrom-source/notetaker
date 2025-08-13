@@ -1290,11 +1290,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self._battery_timer.start(30000)  # opdater hvert 30. sekund
         self.update_battery_status()
 
-        # Load tidligere session eller start med en ny fane
-        if not self.load_session():
-            self.new_tab()
-            self.apply_fixed_scale()
-
         # Interne tilstande
         self.hemingway = False
         self.last_timer_trigger = 0
@@ -1332,6 +1327,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.self_destruct_timer.timeout.connect(self._tick_self_destruct)
         self.self_destruct_seconds = 0
 
+        # Load tidligere session eller start med en ny fane
+        if not self.load_session():
+            self.new_tab()
+            self.apply_fixed_scale()
+          
         # Genveje
         self._setup_shortcuts()
 
