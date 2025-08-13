@@ -1153,7 +1153,6 @@ class MindMenu(QtWidgets.QWidget):
             self.setFixedHeight(h)
             self.setGeometry((parent.width() - w) // 2, parent.height() - h, w, h)
 
-
 class NotificationBar(QtWidgets.QStatusBar):
     """Statusbar der kan glide op og ned."""
 
