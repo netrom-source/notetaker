@@ -1176,6 +1176,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     er holdt enkelt for at kunne køre på svag hardware. Fonten sættes
     her globalt så alle under-widgets arver JetBrains Mono.
     """
+    blind_typing: bool = False
+    blind_visible: bool = False
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Notator")
@@ -1331,7 +1334,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         if not self.load_session():
             self.new_tab()
             self.apply_fixed_scale()
-          
+            
         # Genveje
         self._setup_shortcuts()
 
@@ -1551,7 +1554,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 editor.typed.connect(self._user_typed)
                 editor.auto_name = False
                 editor.setText(text)
-                if self.blind_typing and not self.blind_visible:
+                if getattr(self, "blind_typing", False) and not getattr(self, "blind_visible", False):
                     editor.set_blind(True)
                 index = self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
                 self.tabs.setCurrentIndex(index)
@@ -1910,7 +1913,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 editor.typed.connect(self._user_typed)
                 editor.auto_name = False
                 editor.setText(text)
-                if self.blind_typing and not self.blind_visible:
+                if getattr(self, "blind_typing", False) and not getattr(self, "blind_visible", False):
                     editor.set_blind(True)
                 self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
         self.tabs.setCurrentIndex(min(data.get("current", 0), self.tabs.count()-1))
