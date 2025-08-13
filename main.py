@@ -167,6 +167,8 @@ class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
 class NoteTab(QtWidgets.QTextEdit):
     """En teksteditor der kan blokere sletning i Hemmingway-tilstand."""
 
+    typed = QtCore.pyqtSignal()
+
     def __init__(self, file_path: str, parent=None):
         super().__init__(parent)
         self.file_path = file_path
@@ -179,13 +181,14 @@ class NoteTab(QtWidgets.QTextEdit):
         # robuste overfor systemer hvor JetBrains Mono ikke er installeret.
         self.setFont(QtGui.QFont(pick_mono_font(), 10))
         # Mørk baggrund og små marginer i siderne samt tilpassede scrollbars
-        self.setStyleSheet(
+        self.default_style = (
             "background:#1a1a1a;color:#e6e6e6;"
             "QScrollBar{background:#1a1a1a;border:none;}"
             "QScrollBar::handle{background:#555;border-radius:4px;}"
             "QScrollBar::add-line,QScrollBar::sub-line{width:0;height:0;}"
             "QScrollBar::add-page,QScrollBar::sub-page{background:none;}"
         )
+        self.setStyleSheet(self.default_style)
         self.margin = 24
         self.setViewportMargins(self.margin, 0, self.margin, 0)
         self.highlighter = MarkdownHighlighter(self.document())
@@ -213,16 +216,28 @@ class NoteTab(QtWidgets.QTextEdit):
             os.makedirs(dirpath, exist_ok=True)
         with open(self.file_path, "w", encoding="utf-8") as f:
             f.write(self.toPlainText())
+
+    def set_blind(self, blind: bool) -> None:
+        """Skjul eller vis teksten i editoren."""
+        if blind:
+            style = self.default_style.replace("color:#e6e6e6", "color:#1a1a1a")
+            self.setStyleSheet(style)
+        else:
+            self.setStyleSheet(self.default_style)
+
     def keyPressEvent(self, event: QtGui.QKeyEvent):
         if self.hemingway:
-            blocked = [QtCore.Qt.Key.Key_Backspace,
-                       QtCore.Qt.Key.Key_Delete,
-                       QtCore.Qt.Key.Key_Left,
-                       QtCore.Qt.Key.Key_Up]
+            blocked = [
+                QtCore.Qt.Key.Key_Backspace,
+                QtCore.Qt.Key.Key_Delete,
+                QtCore.Qt.Key.Key_Left,
+                QtCore.Qt.Key.Key_Up,
+            ]
             if event.key() in blocked:
                 # Bloker sletning og bevægelse bagud
                 return
         super().keyPressEvent(event)
+        self.typed.emit()
 
 class TimerWidget(QtWidgets.QLabel):
     """Viser en nedtælling og udsender et signal når tiden er gået.
@@ -407,6 +422,7 @@ class TimerMenu(QtWidgets.QWidget):
     def show_menu(self):
         """Vis menuen med en let slide-animation."""
         self.setVisible(True)
+        self.raise_()
         if self.parent():
             self.setFixedWidth(int(self.parent().width() * 0.33))
         end = self.sizeHint().height()
@@ -432,6 +448,30 @@ class TimerMenu(QtWidgets.QWidget):
     def _after_hide(self):
         self.setVisible(False)
         self.closed.emit()
+
+    def update_scale(self, font: QtGui.QFont, width: int):
+        """Tilpas font og størrelse ved skalering."""
+        self.setFont(font)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFont(font)
+        if self.isVisible() and self.parent():
+            parent = self.parent()
+            w = int(width * 0.5)
+            h = self.sizeHint().height()
+            self.setFixedWidth(w)
+            self.setFixedHeight(h)
+            self.setGeometry((parent.width() - w) // 2, parent.height() - h, w, h)
+
+    def update_scale(self, font: QtGui.QFont, width: int):
+        self.setFont(font)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFont(font)
+        if self.isVisible() and self.parent():
+            w = int(width * 0.5)
+            h = self.sizeHint().height()
+            self.setFixedWidth(w)
+            self.setFixedHeight(h)
+            self.setGeometry((self.parent().width() - w) // 2, self.parent().height() - h, w, h)
 
     def _choose(self, seconds: int):
         self.changed.emit(seconds)
@@ -512,6 +552,8 @@ class FileMenu(QtWidgets.QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background:#1a1a1a;color:#ddd;")
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.list = QtWidgets.QListWidget()
@@ -535,7 +577,6 @@ class FileMenu(QtWidgets.QWidget):
         self.list.installEventFilter(self)
         self.line.returnPressed.connect(self._emit)
         self.list.itemActivated.connect(self._emit)
-        self.setMaximumHeight(0)
         self.hide()
 
     def setup(self, mode: str, default: str = ""):
@@ -571,10 +612,13 @@ class FileMenu(QtWidgets.QWidget):
         parent = self.parent()
         width = int(parent.width() * 0.5)
         self.setFixedWidth(width)
-        start = QtCore.QRect((parent.width() - width) // 2, parent.height(), width, parent.height())
-        end = QtCore.QRect((parent.width() - width) // 2, 0, width, parent.height())
+        h = self.sizeHint().height()
+        self.setFixedHeight(h)
+        start = QtCore.QRect((parent.width() - width) // 2, parent.height(), width, h)
+        end = QtCore.QRect((parent.width() - width) // 2, parent.height() - h, width, h)
         self.setGeometry(start)
         self.setVisible(True)
+        self.raise_()
         anim = QtCore.QPropertyAnimation(self, b"geometry")
         anim.setStartValue(start)
         anim.setEndValue(end)
@@ -591,7 +635,7 @@ class FileMenu(QtWidgets.QWidget):
             self.hide()
             return
         parent = self.parent()
-        end_rect = QtCore.QRect((self.x()), parent.height(), self.width(), parent.height())
+        end_rect = QtCore.QRect(self.x(), parent.height(), self.width(), self.height())
         anim = QtCore.QPropertyAnimation(self, b"geometry")
         anim.setStartValue(self.geometry())
         anim.setEndValue(end_rect)
@@ -640,7 +684,9 @@ class FileMenu(QtWidgets.QWidget):
         if self.isVisible() and self.parent():
             w = int(width * 0.5)
             self.setFixedWidth(w)
-            self.setGeometry((self.parent().width() - w) // 2, 0, w, self.parent().height())
+            h = self.sizeHint().height()
+            self.setFixedHeight(h)
+            self.setGeometry((self.parent().width() - w) // 2, self.parent().height() - h, w, h)
 
 
 class DeleteMenu(QtWidgets.QWidget):
@@ -682,6 +728,8 @@ class DeleteMenu(QtWidgets.QWidget):
             QtWidgets.QSizePolicy.Policy.Fixed,
             QtWidgets.QSizePolicy.Policy.Preferred,
         )
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background:#1a1a1a;")
         self._index = 0
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(10, 10, 10, 10)
@@ -760,7 +808,6 @@ class DeleteMenu(QtWidgets.QWidget):
         self.layout().addLayout(btn_row)
         self.confirm_btn.hide()
 
-        self.setMaximumHeight(0)
         self.hide()
         self.installEventFilter(self)
 
@@ -774,6 +821,7 @@ class DeleteMenu(QtWidgets.QWidget):
         end = QtCore.QRect((parent.width() - width) // 2, 0, width, parent.height())
         self.setGeometry(start)
         self.setVisible(True)
+        self.raise_()
         self._set_haiku()
         for inp in self.inputs:
             inp.hide()
@@ -877,6 +925,7 @@ class PowerMenu(QtWidgets.QWidget):
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(40, 40, 40, 40)
         self.layout().setSpacing(6)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("background:#1a1a1a;")
 
         actions = [
@@ -931,6 +980,7 @@ class PowerMenu(QtWidgets.QWidget):
         parent = self.parent()
         self.setGeometry(0, parent.height(), parent.width(), parent.height())
         self.setVisible(True)
+        self.raise_()
         wnd = self.window()
         if hasattr(wnd, "set_shortcuts_enabled"):
             wnd.set_shortcuts_enabled(False)
@@ -994,6 +1044,116 @@ class PowerMenu(QtWidgets.QWidget):
         return super().eventFilter(obj, event)
 
 
+class MindMenu(QtWidgets.QWidget):
+    """Menu med skrivepsykologiske funktioner."""
+
+    toggledInvisible = QtCore.pyqtSignal(bool)
+    toggledBlind = QtCore.pyqtSignal(bool)
+    toggledThink = QtCore.pyqtSignal(bool)
+    startDestruct = QtCore.pyqtSignal(int)
+    closed = QtCore.pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background:#1a1a1a;color:#ddd;")
+        self.setLayout(QtWidgets.QVBoxLayout())
+        self.layout().setContentsMargins(10, 10, 10, 10)
+
+        self.invisible_cb = QtWidgets.QCheckBox("Usynlig blæk")
+        self.layout().addWidget(self.invisible_cb)
+
+        self.blind_cb = QtWidgets.QCheckBox("Skrive med øjnene lukkede")
+        self.layout().addWidget(self.blind_cb)
+
+        self.predict_cb = QtWidgets.QCheckBox("Ordforsagelse")
+        self.layout().addWidget(self.predict_cb)
+
+        self.shadow_cb = QtWidgets.QCheckBox("Skyggetekst")
+        self.layout().addWidget(self.shadow_cb)
+
+        self.blindstart_cb = QtWidgets.QCheckBox("Blindstart")
+        self.layout().addWidget(self.blindstart_cb)
+
+        self.think_cb = QtWidgets.QCheckBox("Tænkepauser")
+        self.layout().addWidget(self.think_cb)
+
+        self.deadline_cb = QtWidgets.QCheckBox("Nedskrivningsdødlinje")
+        self.layout().addWidget(self.deadline_cb)
+
+        sd_layout = QtWidgets.QHBoxLayout()
+        sd_layout.addWidget(QtWidgets.QLabel("Selvdestruktion (min):"))
+        self.sd_spin = QtWidgets.QSpinBox()
+        self.sd_spin.setRange(5, 90)
+        self.sd_spin.setValue(30)
+        sd_layout.addWidget(self.sd_spin)
+        self.sd_btn = QtWidgets.QPushButton("Start")
+        sd_layout.addWidget(self.sd_btn)
+        self.layout().addLayout(sd_layout)
+
+        close_btn = QtWidgets.QPushButton("Luk")
+        self.layout().addWidget(close_btn)
+
+        self.invisible_cb.toggled.connect(self.toggledInvisible.emit)
+        self.blind_cb.toggled.connect(self.toggledBlind.emit)
+        self.think_cb.toggled.connect(self.toggledThink.emit)
+        self.sd_btn.clicked.connect(lambda: self.startDestruct.emit(self.sd_spin.value()))
+        close_btn.clicked.connect(self.hide_menu)
+
+        self.hide()
+
+    def show_menu(self):
+        if not self.parent():
+            return
+        parent = self.parent()
+        width = int(parent.width() * 0.5)
+        self.setFixedWidth(width)
+        h = self.sizeHint().height()
+        self.setFixedHeight(h)
+        start = QtCore.QRect((parent.width() - width) // 2, parent.height(), width, h)
+        end = QtCore.QRect((parent.width() - width) // 2, parent.height() - h, width, h)
+        self.setGeometry(start)
+        self.setVisible(True)
+        self.raise_()
+        anim = QtCore.QPropertyAnimation(self, b"geometry")
+        anim.setStartValue(start)
+        anim.setEndValue(end)
+        anim.setDuration(200)
+        anim.start()
+        self._anim = anim
+
+    def hide_menu(self):
+        if not self.parent():
+            self.hide()
+            return
+        parent = self.parent()
+        end_rect = QtCore.QRect(self.x(), parent.height(), self.width(), self.height())
+        anim = QtCore.QPropertyAnimation(self, b"geometry")
+        anim.setStartValue(self.geometry())
+        anim.setEndValue(end_rect)
+        anim.setDuration(200)
+        anim.finished.connect(self._after_hide)
+        anim.start()
+        self._anim = anim
+
+    def _after_hide(self):
+        self.setVisible(False)
+        self.closed.emit()
+
+    def update_scale(self, font: QtGui.QFont, width: int):
+        """Tilpas font og størrelse ved skalering."""
+        self.setFont(font)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFont(font)
+        if self.isVisible() and self.parent():
+            parent = self.parent()
+            w = int(width * 0.5)
+            h = self.sizeHint().height()
+            self.setFixedWidth(w)
+            self.setFixedHeight(h)
+            self.setGeometry((parent.width() - w) // 2, parent.height() - h, w, h)
+
+
 class NotificationBar(QtWidgets.QStatusBar):
     """Statusbar der kan glide op og ned."""
 
@@ -1042,6 +1202,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     er holdt enkelt for at kunne køre på svag hardware. Fonten sættes
     her globalt så alle under-widgets arver JetBrains Mono.
     """
+    blind_typing: bool = False
+    blind_visible: bool = False
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Notator")
@@ -1103,6 +1266,15 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.power_menu.closed.connect(lambda: self.current_editor().setFocus())
         self.power_menu.hide()
 
+        # Menu til skrivepsykologiske funktioner
+        self.mind_menu = MindMenu(central)
+        self.mind_menu.toggledInvisible.connect(self.set_invisible)
+        self.mind_menu.toggledBlind.connect(self.set_blind_mode)
+        self.mind_menu.toggledThink.connect(self.set_think)
+        self.mind_menu.startDestruct.connect(self.start_self_destruct)
+        self.mind_menu.closed.connect(lambda: self.current_editor().setFocus())
+        self.mind_menu.hide()
+
         # Adskillelseslinje over statusbaren med blød skygge
         sep_layout = QtWidgets.QHBoxLayout()
         sep_layout.setContentsMargins(10, 0, 10, 0)
@@ -1129,21 +1301,13 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.status = NotificationBar()
         self.setStatusBar(self.status)
 
-        # Hemingway-knappen lægges til højre i statuslinien
-        self.hemi_button = QtWidgets.QToolButton()
-        self.hemi_button.setCheckable(True)
-        hemi_icon = QtGui.QIcon(os.path.join("icons", "feather.svg"))
-        self.hemi_button.setIcon(hemi_icon)
-        self.hemi_button.setIconSize(QtCore.QSize(24, 24))
-        self.hemi_button.setStyleSheet(
-            "QToolButton {background:#2c2c2c;border-radius:4px;}"
-            "QToolButton:checked {background:#777;}"
-        )
-        self.hemi_button.setToolTip("Skift Hemingway Mode")
-        self.hemi_button.clicked.connect(self.toggle_hemingway)
-        self.status.addPermanentWidget(self.hemi_button)
+        # Label der viser om Hemmingway-tilstand er aktiv
+        self.hemi_label = QtWidgets.QLabel("Hemmingway aktiveret")
+        self.hemi_label.setStyleSheet("color:#ddd;padding-right:6px;")
+        self.hemi_label.hide()
+        self.status.addPermanentWidget(self.hemi_label)
 
-        # Label til batteristatus lige efter Hemingway-knappen
+        # Label til batteristatus
         self.battery_label = QtWidgets.QLabel()
         self.battery_label.setStyleSheet("color:#ddd;padding-left:6px;")
         self.status.addPermanentWidget(self.battery_label)
@@ -1155,17 +1319,47 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self._battery_timer.start(30000)  # opdater hvert 30. sekund
         self.update_battery_status()
 
-        # Load tidligere session eller start med en ny fane
-        if not self.load_session():
-            self.new_tab()
-            self.apply_fixed_scale()
-
         # Interne tilstande
         self.hemingway = False
         self.last_timer_trigger = 0
         self.last_reset = 0
         self.current_duration = 0
         self.last_save_press = 0
+
+        # Skrivepsykologiske tilstande
+        self.invisible_enabled = False
+        self.blind_typing = False
+        self.blind_visible = False
+        self.think_enabled = False
+
+        self.invisible_delay = 5
+        self.fade_speed = 1
+        self._fading = False
+        self.invisible_idle = QtCore.QTimer()
+        self.invisible_idle.setSingleShot(True)
+        self.invisible_idle.timeout.connect(self._start_fade)
+        self.fade_timer = QtCore.QTimer()
+        self.fade_timer.timeout.connect(self._fade_word)
+
+        self.think_delay = 15
+        self.think_prompts = [
+            "Hvad venter du på?",
+            "Er du i gang med at redigere i dit hoved?",
+            "Vil du hellere fortryde end skrive?",
+            "Hvis du ikke skrev det her – hvem ville?",
+        ]
+        self.think_timer = QtCore.QTimer()
+        self.think_timer.setSingleShot(True)
+        self.think_timer.timeout.connect(self._think_prompt)
+
+        self.self_destruct_timer = QtCore.QTimer()
+        self.self_destruct_timer.timeout.connect(self._tick_self_destruct)
+        self.self_destruct_seconds = 0
+
+        # Load tidligere session eller start med en ny fane
+        if not self.load_session():
+            self.new_tab()
+            self.apply_fixed_scale()
 
         # Genveje
         self._setup_shortcuts()
@@ -1189,23 +1383,31 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             ("Ctrl+Shift+S", self.save_file_as),
             ("Ctrl+W", self.close_current_tab),
             ("Ctrl+Q", self.close),
-            ("Ctrl+,", self.prev_tab),
-            ("Ctrl+.", self.next_tab),
-            ("Ctrl+Alt+Backspace", self.request_delete),
+            ("Ctrl+Shift+Tab", self.prev_tab),
+            ("Ctrl+Tab", self.next_tab),
+            # "Ctrl+Alt+Backspace" bruges traditionelt til at dr\u00e6be X11 og
+            # kan derfor v\u00e6re deaktiveret p\u00e5 nogle systemer. Vi registrerer
+            # derfor ogs\u00e5 en reserve-genvej.
+            (["Ctrl+Alt+Backspace", "Ctrl+Alt+D"], self.request_delete),
             ("Ctrl+T", self.toggle_timer),
             ("Ctrl+R", self.reset_or_stop_timer),
             ("Ctrl+H", self.toggle_hemingway),
             ("Ctrl+Alt+.", self.toggle_tabbar),
+            ("Ctrl+.", self.toggle_blind_visibility),
+            ("Ctrl+M", self.toggle_mind_menu),
             ("F12", self.brightness_up),
             ("F11", self.brightness_down),
             ("Ctrl+Escape", self.power_menu.show_menu),
         ]
         self.shortcuts = []
-        for seq, slot in shortcuts:
-            sc = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
-            sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
-            sc.activated.connect(slot)
-            self.shortcuts.append(sc)
+        for seqs, slot in shortcuts:
+            sequences = seqs if isinstance(seqs, (list, tuple)) else [seqs]
+            for seq in sequences:
+                sc = QtGui.QShortcut(QtGui.QKeySequence(seq), self)
+                sc.setContext(QtCore.Qt.ShortcutContext.ApplicationShortcut)
+                sc.setAutoRepeat(False)
+                sc.activated.connect(slot)
+                self.shortcuts.append(sc)
 
     def set_shortcuts_enabled(self, enabled: bool) -> None:
         """Aktiver eller deaktiver alle globale genveje."""
@@ -1316,6 +1518,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         """Opretter en ny tom fane med automatisk filnavn."""
         path = self._generate_filename()
         editor = NoteTab(path)
+        editor.typed.connect(self._user_typed)
         index = self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
         self.tabs.setCurrentIndex(index)
         # Flyt indikatorbjælken til den nye fane
@@ -1323,6 +1526,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         editor.auto_save()  # gem straks
         editor.setFont(QtGui.QFont(self.font_family, max(6, round(10 * self.scale_factor))))
         editor.set_scale(self.scale_factor)
+        if self.blind_typing and not self.blind_visible:
+            editor.set_blind(True)
         self.status.showMessage("Ny note oprettet", 2000)
 
     def open_file(self):
@@ -1372,8 +1577,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 with open(path, "r", encoding="utf-8") as f:
                     text = f.read()
                 editor = NoteTab(path)
+                editor.typed.connect(self._user_typed)
                 editor.auto_name = False
                 editor.setText(text)
+                if getattr(self, "blind_typing", False) and not getattr(self, "blind_visible", False):
+                    editor.set_blind(True)
                 index = self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
                 self.tabs.setCurrentIndex(index)
                 self._move_indicator(index)
@@ -1493,6 +1701,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.file_menu.update_scale(font, self.width())
         self.delete_menu.update_scale(font, self.width())
         self.power_menu.update_scale(font, self.width(), self.height())
+        if hasattr(self.mind_menu, "update_scale"):
+            self.mind_menu.update_scale(font, self.width())
         self.timer_widget.update_font(int(16 * self.scale_factor))
         padding = int(4 * self.scale_factor)
         self._style_tabs(padding)
@@ -1566,21 +1776,119 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     def brightness_down(self):
         self._adjust_brightness(-10)
 
+    # ----- Skrivepsykologi -----
+
+    def set_invisible(self, state: bool) -> None:
+        self.invisible_enabled = state
+        if state:
+            self.invisible_idle.start(self.invisible_delay * 1000)
+        else:
+            self.invisible_idle.stop()
+            self.fade_timer.stop()
+            self._fading = False
+
+    def set_blind_mode(self, state: bool) -> None:
+        self.blind_typing = state
+        self.blind_visible = False
+        self._apply_blind()
+
+    def toggle_blind_visibility(self):
+        if not self.blind_typing:
+            return
+        self.blind_visible = not self.blind_visible
+        self._apply_blind()
+
+    def _apply_blind(self):
+        for i in range(self.tabs.count()):
+            editor = self.tabs.widget(i)
+            editor.set_blind(self.blind_typing and not self.blind_visible)
+
+    def set_think(self, state: bool) -> None:
+        self.think_enabled = state
+        if state:
+            self.think_timer.start(self.think_delay * 1000)
+        else:
+            self.think_timer.stop()
+
+    def start_self_destruct(self, minutes: int) -> None:
+        if minutes <= 0:
+            return
+        self.self_destruct_seconds = minutes * 60
+        self.self_destruct_timer.start(1000)
+        self.status.showMessage(f"Selvdestruktion om {minutes} min", 2000)
+
+    def _tick_self_destruct(self) -> None:
+        if self.self_destruct_seconds <= 0:
+            return
+        self.self_destruct_seconds -= 1
+        if self.self_destruct_seconds == 60:
+            self.status.showMessage("Selvdestruktion om 1 minut", 2000)
+        if self.self_destruct_seconds <= 0:
+            for i in range(self.tabs.count()):
+                self.tabs.widget(i).clear()
+            self.self_destruct_timer.stop()
+            self.status.showMessage("Alt slettet", 5000)
+
+    def _start_fade(self):
+        if not self.invisible_enabled:
+            return
+        self._fading = True
+        interval = max(1, int(1000 / max(1, self.fade_speed)))
+        self.fade_timer.start(interval)
+
+    def _fade_word(self):
+        editor = self.current_editor()
+        if not editor:
+            return
+        text = editor.toPlainText().rstrip()
+        if not text:
+            self.fade_timer.stop()
+            self._fading = False
+            return
+        words = text.split()
+        if words:
+            words.pop()
+            editor.blockSignals(True)
+            editor.setPlainText(" ".join(words))
+            editor.moveCursor(QtGui.QTextCursor.MoveOperation.End)
+            editor.blockSignals(False)
+
+    def _think_prompt(self):
+        if not self.think_enabled:
+            return
+        import random
+
+        self.status.showMessage(random.choice(self.think_prompts), 5000)
+        self.think_timer.start(self.think_delay * 1000)
+
+    def _user_typed(self):
+        if self.invisible_enabled and not self._fading:
+            self.invisible_idle.start(self.invisible_delay * 1000)
+        if self._fading:
+            self.fade_timer.stop()
+            self._fading = False
+        if self.think_enabled:
+            self.think_timer.start(self.think_delay * 1000)
+
+    def toggle_mind_menu(self):
+        if self.mind_menu.isVisible():
+            self.mind_menu.hide_menu()
+        else:
+            self.mind_menu.show_menu()
+
     # ----- Hemmingway-tilstand -----
 
     def toggle_hemingway(self):
         """Aktiver eller deaktiver Hemingway Mode.
 
         Hemmingway-tilstand forhindrer brugeren i at slette tekst eller
-        bevæge markøren bagud. Funktionen kan slås til via genvejen
-        ``Ctrl+H`` eller ved at klikke på pen-knappen i øverste højre hjørne.
+        bevæge markøren bagud og kan slås til via genvejen ``Ctrl+H``.
         """
         self.hemingway = not self.hemingway
         for i in range(self.tabs.count()):
             editor = self.tabs.widget(i)
             editor.hemingway = self.hemingway
-        # Synkroniser knappen med den interne tilstand
-        self.hemi_button.setChecked(self.hemingway)
+        self.hemi_label.setVisible(self.hemingway)
         tilstand = "aktiveret" if self.hemingway else "deaktiveret"
         self.status.showMessage(f"Hemmingway {tilstand}", 2000)
 
@@ -1629,8 +1937,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 with open(path, "r", encoding="utf-8") as f:
                     text = f.read()
                 editor = NoteTab(path)
+                editor.typed.connect(self._user_typed)
                 editor.auto_name = False
                 editor.setText(text)
+                if getattr(self, "blind_typing", False) and not getattr(self, "blind_visible", False):
+                    editor.set_blind(True)
                 self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
         self.tabs.setCurrentIndex(min(data.get("current", 0), self.tabs.count()-1))
         size = data.get("size")
