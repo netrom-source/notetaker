@@ -450,6 +450,19 @@ class TimerMenu(QtWidgets.QWidget):
         self.closed.emit()
 
     def update_scale(self, font: QtGui.QFont, width: int):
+        """Tilpas font og størrelse ved skalering."""
+        self.setFont(font)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFont(font)
+        if self.isVisible() and self.parent():
+            parent = self.parent()
+            w = int(width * 0.5)
+            h = self.sizeHint().height()
+            self.setFixedWidth(w)
+            self.setFixedHeight(h)
+            self.setGeometry((parent.width() - w) // 2, parent.height() - h, w, h)
+
+    def update_scale(self, font: QtGui.QFont, width: int):
         self.setFont(font)
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFont(font)
@@ -1127,6 +1140,19 @@ class MindMenu(QtWidgets.QWidget):
         self.setVisible(False)
         self.closed.emit()
 
+    def update_scale(self, font: QtGui.QFont, width: int):
+        """Tilpas font og størrelse ved skalering."""
+        self.setFont(font)
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.setFont(font)
+        if self.isVisible() and self.parent():
+            parent = self.parent()
+            w = int(width * 0.5)
+            h = self.sizeHint().height()
+            self.setFixedWidth(w)
+            self.setFixedHeight(h)
+            self.setGeometry((parent.width() - w) // 2, parent.height() - h, w, h)
+
 
 class NotificationBar(QtWidgets.QStatusBar):
     """Statusbar der kan glide op og ned."""
@@ -1334,7 +1360,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         if not self.load_session():
             self.new_tab()
             self.apply_fixed_scale()
-            
+
         # Genveje
         self._setup_shortcuts()
 
