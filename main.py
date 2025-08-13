@@ -1331,7 +1331,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         if not self.load_session():
             self.new_tab()
             self.apply_fixed_scale()
-
+          
         # Genveje
         self._setup_shortcuts()
 
