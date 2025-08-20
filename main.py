@@ -1011,29 +1011,37 @@ class PowerMenu(QtWidgets.QWidget):
         if not self.parent():
             return
         parent = self.parent()
-        self.setGeometry(0, parent.height(), parent.width(), parent.height())
+        width = self.sizeHint().width()
+        x = (parent.width() - width) // 2
+        start_rect = QtCore.QRect(x, parent.height(), width, parent.height())
+        end_rect = QtCore.QRect(x, 0, width, parent.height())
+        self.setGeometry(start_rect)
         self.setVisible(True)
         self.raise_()
         wnd = self.window()
         if hasattr(wnd, "set_shortcuts_enabled"):
             wnd.set_shortcuts_enabled(False)
         anim = QtCore.QPropertyAnimation(self, b"geometry")
-        anim.setStartValue(QtCore.QRect(0, parent.height(), parent.width(), parent.height()))
-        anim.setEndValue(QtCore.QRect(0, 0, parent.width(), parent.height()))
+        anim.setStartValue(start_rect)
+        anim.setEndValue(end_rect)
         anim.setDuration(200)
         anim.start()
         self._anim = anim
         if self.buttons:
-            self.buttons[0].setFocus()
+            QtCore.QTimer.singleShot(0, self.buttons[0].setFocus)
 
     def hide_menu(self):
         if not self.parent():
             self.setVisible(False)
             return
         parent = self.parent()
+        x = self.x()
+        width = self.width()
+        start_rect = self.geometry()
+        end_rect = QtCore.QRect(x, parent.height(), width, parent.height())
         anim = QtCore.QPropertyAnimation(self, b"geometry")
-        anim.setStartValue(self.geometry())
-        anim.setEndValue(QtCore.QRect(0, parent.height(), parent.width(), parent.height()))
+        anim.setStartValue(start_rect)
+        anim.setEndValue(end_rect)
         anim.setDuration(200)
         anim.finished.connect(self._after_hide)
         anim.start()
@@ -1052,7 +1060,9 @@ class PowerMenu(QtWidgets.QWidget):
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFont(font)
         if self.isVisible() and self.parent():
-            self.setGeometry(0, 0, width, height)
+            menu_width = self.sizeHint().width()
+            x = (width - menu_width) // 2
+            self.setGeometry(x, 0, menu_width, height)
             self.layout().activate()
         self._update_button_width()
         
@@ -1083,7 +1093,6 @@ class MindMenu(QtWidgets.QWidget):
 
     toggledInvisible = QtCore.pyqtSignal(bool)
     toggledBlind = QtCore.pyqtSignal(bool)
-    toggledThink = QtCore.pyqtSignal(bool)
     toggledHemi = QtCore.pyqtSignal(bool)
     startDestruct = QtCore.pyqtSignal(int)
     closed = QtCore.pyqtSignal()
@@ -1104,15 +1113,6 @@ class MindMenu(QtWidgets.QWidget):
         self.hemi_cb = QtWidgets.QCheckBox("Hemmingway mode")
         self.layout().addWidget(self.hemi_cb)
 
-        self.think_cb = QtWidgets.QCheckBox("Tænkepauser")
-        self.layout().addWidget(self.think_cb)
-
-        self.predict_cb = QtWidgets.QCheckBox("Ordforsagelse")
-        self.layout().addWidget(self.predict_cb)
-
-        self.shadow_cb = QtWidgets.QCheckBox("Skyggetekst")
-        self.layout().addWidget(self.shadow_cb)
-
         self.blindstart_cb = QtWidgets.QCheckBox("Blindstart")
         self.layout().addWidget(self.blindstart_cb)
 
@@ -1132,7 +1132,6 @@ class MindMenu(QtWidgets.QWidget):
         self.invisible_cb.toggled.connect(self.toggledInvisible.emit)
         self.blind_cb.toggled.connect(self.toggledBlind.emit)
         self.hemi_cb.toggled.connect(self.toggledHemi.emit)
-        self.think_cb.toggled.connect(self.toggledThink.emit)
         self.sd_btn.clicked.connect(lambda: self.startDestruct.emit(self.sd_spin.value()))
         close_btn.clicked.connect(self.hide_menu)
 
@@ -1321,7 +1320,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.mind_menu.toggledInvisible.connect(self.set_invisible)
         self.mind_menu.toggledBlind.connect(self.set_blind_mode)
         self.mind_menu.toggledHemi.connect(self.set_hemingway)
-        self.mind_menu.toggledThink.connect(self.set_think)
         self.mind_menu.startDestruct.connect(self.start_self_destruct)
         self.mind_menu.closed.connect(lambda: self.current_editor().setFocus())
         self.mind_menu.hide()
@@ -1367,11 +1365,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.blind_label.setStyleSheet("color:#ddd;padding-right:6px;")
         self.blind_label.hide()
         self.status.addPermanentWidget(self.blind_label)
-
-        self.think_label = QtWidgets.QLabel("Tænkepauser")
-        self.think_label.setStyleSheet("color:#ddd;padding-right:6px;")
-        self.think_label.hide()
-        self.status.addPermanentWidget(self.think_label)
 
         # Label til batteristatus
         self.battery_label = QtWidgets.QLabel()
@@ -1925,10 +1918,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def set_think(self, state: bool) -> None:
         self.think_enabled = state
-        self.think_label.setVisible(state)
-        self.mind_menu.think_cb.blockSignals(True)
-        self.mind_menu.think_cb.setChecked(state)
-        self.mind_menu.think_cb.blockSignals(False)
         if state:
             self.think_timer.start(self.think_delay * 1000)
         else:
