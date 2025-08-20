@@ -203,8 +203,8 @@ class NoteTab(QtWidgets.QTextEdit):
         self.setFont(QtGui.QFont(pick_mono_font(), 10))
         # Mørk baggrund og små marginer i siderne samt tilpassede scrollbars
         self.default_style = (
-            "background:#1a1a1a;color:#e6e6e6;"
-            "QScrollBar{background:#1a1a1a;border:none;}"
+            "background:#121212;color:#e6e6e6;"
+            "QScrollBar{background:#121212;border:none;}"
             "QScrollBar::handle{background:#555;border-radius:4px;}"
             "QScrollBar::add-line,QScrollBar::sub-line{width:0;height:0;}"
             "QScrollBar::add-page,QScrollBar::sub-page{background:none;}"
@@ -241,7 +241,7 @@ class NoteTab(QtWidgets.QTextEdit):
     def set_blind(self, blind: bool) -> None:
         """Skjul eller vis teksten i editoren."""
         if blind:
-            style = self.default_style.replace("color:#e6e6e6", "color:#1a1a1a")
+            style = self.default_style.replace("color:#e6e6e6", "color:#121212")
             self.setStyleSheet(style)
         else:
             self.setStyleSheet(self.default_style)
@@ -384,7 +384,7 @@ class TimerWidget(QtWidgets.QLabel):
         elif self._running:
             bg = "#556b2f"  # støvet grøn under nedtælling
         else:
-            bg = "#1a1a1a"
+            bg = "#121212"
         color = QtGui.QColor("#e6e6e6")
         color.setAlphaF(self._text_opacity)
         self.setStyleSheet(
@@ -428,7 +428,7 @@ class TimerMenu(QtWidgets.QWidget):
         self.custom_input.setPlaceholderText("Indtast tid")
         # Diskret grå kant omkring feltet
         self.custom_input.setStyleSheet(
-            "QLineEdit{border:1px solid #666;background:#1a1a1a;color:#ddd;}"
+            "QLineEdit{border:1px solid #666;background:#121212;color:#ddd;}"
         )
         self.custom_input.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.custom_input.returnPressed.connect(self._custom)
@@ -574,7 +574,7 @@ class FileMenu(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet("background:#1a1a1a;color:#ddd;")
+        self.setStyleSheet("background:#121212;color:#ddd;")
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.list = QtWidgets.QListWidget()
@@ -750,7 +750,7 @@ class DeleteMenu(QtWidgets.QWidget):
             QtWidgets.QSizePolicy.Policy.Preferred,
         )
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet("background:#1a1a1a;")
+        self.setStyleSheet("background:#121212;")
         self._index = 0
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(10, 10, 10, 10)
@@ -787,7 +787,7 @@ class DeleteMenu(QtWidgets.QWidget):
         for inp in self.inputs:
             inp.hide()
             inp.setStyleSheet(
-                "QLineEdit{border:1px solid #666;background:#1a1a1a;color:#ddd;}"
+                "QLineEdit{border:1px solid #666;background:#121212;color:#ddd;}"
             )
             inp.textChanged.connect(self._validate)
             inp.installEventFilter(self)
@@ -947,7 +947,7 @@ class PowerMenu(QtWidgets.QWidget):
         self.layout().setContentsMargins(40, 40, 40, 40)
         self.layout().setSpacing(6)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet("background:#1a1a1a;")
+        self.setStyleSheet("background:#121212;")
 
         actions = [
             ("Sluk maskinen", lambda: os.system("systemctl poweroff")),
@@ -1091,7 +1091,7 @@ class MindMenu(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet("background:#1a1a1a;color:#ddd;")
+        self.setStyleSheet("background:#121212;color:#ddd;")
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(10, 10, 10, 10)
 
@@ -1195,7 +1195,7 @@ class NotificationBar(QtWidgets.QStatusBar):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(
-            "QStatusBar{background:#1a1a1a;color:#ddd;border-radius:6px;padding:4px;}"
+            "QStatusBar{background:#121212;color:#ddd;border-radius:6px;padding:4px;}"
         )
         shadow = QtWidgets.QGraphicsDropShadowEffect()
         shadow.setBlurRadius(8)
@@ -1203,6 +1203,7 @@ class NotificationBar(QtWidgets.QStatusBar):
         self.setGraphicsEffect(shadow)
         self.setMaximumHeight(self.sizeHint().height())
         self._anim = None
+        self.user_hidden = False
 
     def show_bar(self):
         end = self.sizeHint().height()
@@ -1223,10 +1224,18 @@ class NotificationBar(QtWidgets.QStatusBar):
         self._anim = anim
 
     def showMessage(self, message: str, timeout: int = 0) -> None:
+        was_hidden = self.maximumHeight() == 0 and self.user_hidden
+        if was_hidden:
+            self.show_bar()
         super().showMessage(message, timeout)
 
     def clearMessage(self) -> None:
         super().clearMessage()
+        self._maybe_hide()
+
+    def _maybe_hide(self) -> None:
+        if self.user_hidden:
+            self.hide_bar()
 
 # ----- Hovedvindue -----
 
@@ -1248,6 +1257,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Vis i frameless fullscreen
         self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setStyleSheet("background:#121212;")
         # Global font for hele applikationen. ``pick_mono_font`` sikrer
         # at der vælges en monospace-font som faktisk findes.
         self.font_family = pick_mono_font()
@@ -1261,13 +1271,15 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
         radius = self._corner_radius()
-        central.setStyleSheet(f"background:#1a1a1a;border-radius:{radius}px;")
+        central.setStyleSheet(f"background:#121212;border-radius:{radius}px;")
         vlayout = QtWidgets.QVBoxLayout(central)
         vlayout.setContentsMargins(0, 0, 0, 0)
+        vlayout.setSpacing(0)
 
         # Topbaren indeholder kun timeren. Hemingway-knappen flyttes til
         # statuslinjen for at rydde op i layoutet.
         top_bar = QtWidgets.QHBoxLayout()
+        top_bar.setContentsMargins(0, 0, 0, 0)
         vlayout.addLayout(top_bar)
 
         self.timer_widget = TimerWidget()
@@ -1541,7 +1553,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.setMask(region)
         if self.centralWidget():
             self.centralWidget().setStyleSheet(
-                f"background:#1a1a1a;border-radius:{radius}px;"
+                f"background:#121212;border-radius:{radius}px;"
             )
 
     def _style_tabs(self, padding: int = 4):
@@ -1556,10 +1568,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.tabs.setDocumentMode(True)
         font_size = max(6, round(10 * self.scale_factor))
         self.tabs.setStyleSheet(
-            "QTabBar {background:#1a1a1a;border:0;}"
+            "QTabBar {background:#121212;border:0;}"
             f"QTabBar::tab {{background:transparent;padding:{padding}px {padding*3}px;color:#aaa;border:none;font-size:{font_size}pt;}}"
             "QTabBar::tab:selected {color:#fff;}"
-            "QTabWidget::pane {border:0;background:#1a1a1a;}"
+            "QTabWidget::pane {border:0;background:#121212;}"
         )
         if bar.isVisible():
             bar.setMaximumHeight(bar.sizeHint().height())
@@ -1732,6 +1744,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             anim.finished.connect(lambda: bar.setVisible(False))
             self.indicator.hide()
             self.status.hide_bar()
+            self.status.user_hidden = True
         else:
             bar.setVisible(True)
             anim.setStartValue(0)
@@ -1739,6 +1752,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             QtCore.QTimer.singleShot(0, self._indicator_from_bottom)
             anim.finished.connect(lambda: self._move_indicator(self.tabs.currentIndex()))
             self.status.show_bar()
+            self.status.user_hidden = False
         anim.setDuration(200)
         anim.start()
         self._tabbar_anim = anim
@@ -1781,7 +1795,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         view.setReadOnly(True)
         view.setPlainText(text)
         view.setFont(QtGui.QFont(self.font_family, max(6, round(10 * self.scale_factor))))
-        view.setStyleSheet("background:#1a1a1a;color:#e6e6e6;")
+        view.setStyleSheet("background:#121212;color:#e6e6e6;")
         dlg.layout().addWidget(view)
         dlg.resize(int(self.width() * 0.6), int(self.height() * 0.6))
         dlg.exec()
