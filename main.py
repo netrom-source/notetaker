@@ -946,6 +946,10 @@ class PowerMenu(QtWidgets.QWidget):
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().setContentsMargins(40, 40, 40, 40)
         self.layout().setSpacing(6)
+        self.layout().setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignHCenter
+            | QtCore.Qt.AlignmentFlag.AlignVCenter
+        )
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet("background:#121212;")
 
@@ -1011,10 +1015,8 @@ class PowerMenu(QtWidgets.QWidget):
         if not self.parent():
             return
         parent = self.parent()
-        width = self.sizeHint().width()
-        x = (parent.width() - width) // 2
-        start_rect = QtCore.QRect(x, parent.height(), width, parent.height())
-        end_rect = QtCore.QRect(x, 0, width, parent.height())
+        start_rect = QtCore.QRect(0, parent.height(), parent.width(), parent.height())
+        end_rect = QtCore.QRect(0, 0, parent.width(), parent.height())
         self.setGeometry(start_rect)
         self.setVisible(True)
         self.raise_()
@@ -1025,20 +1027,18 @@ class PowerMenu(QtWidgets.QWidget):
         anim.setStartValue(start_rect)
         anim.setEndValue(end_rect)
         anim.setDuration(200)
+        if self.buttons:
+            anim.finished.connect(self.buttons[0].setFocus)
         anim.start()
         self._anim = anim
-        if self.buttons:
-            QtCore.QTimer.singleShot(0, self.buttons[0].setFocus)
 
     def hide_menu(self):
         if not self.parent():
             self.setVisible(False)
             return
         parent = self.parent()
-        x = self.x()
-        width = self.width()
         start_rect = self.geometry()
-        end_rect = QtCore.QRect(x, parent.height(), width, parent.height())
+        end_rect = QtCore.QRect(0, parent.height(), parent.width(), parent.height())
         anim = QtCore.QPropertyAnimation(self, b"geometry")
         anim.setStartValue(start_rect)
         anim.setEndValue(end_rect)
@@ -1060,9 +1060,7 @@ class PowerMenu(QtWidgets.QWidget):
         for child in self.findChildren(QtWidgets.QWidget):
             child.setFont(font)
         if self.isVisible() and self.parent():
-            menu_width = self.sizeHint().width()
-            x = (width - menu_width) // 2
-            self.setGeometry(x, 0, menu_width, height)
+            self.setGeometry(0, 0, width, height)
             self.layout().activate()
         self._update_button_width()
         
@@ -1255,7 +1253,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.resize(1280, 400)
         # Vis i frameless fullscreen
         self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet("background:#121212;")
         # Global font for hele applikationen. ``pick_mono_font`` sikrer
         # at der vælges en monospace-font som faktisk findes.
