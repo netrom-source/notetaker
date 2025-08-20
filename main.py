@@ -967,6 +967,18 @@ class PowerMenu(QtWidgets.QWidget):
         state = "ON" if self.wifi_enabled else "OFF"
         if hasattr(self, "wifi_btn"):
             self.wifi_btn.setText(f"WiFi ({state})")
+            self._update_button_width()
+
+    def _update_button_width(self):
+        margin = 20
+        max_w = 0
+        for btn in self.buttons:
+            w = btn.fontMetrics().horizontalAdvance(btn.text())
+            if w > max_w:
+                max_w = w
+        max_w += margin
+        for btn in self.buttons:
+            btn.setFixedWidth(max_w)
 
     def _open_readme(self):
         wnd = self.window()
@@ -1021,6 +1033,7 @@ class PowerMenu(QtWidgets.QWidget):
         if self.isVisible() and self.parent():
             self.setGeometry(0, 0, width, height)
             self.layout().activate()
+        self._update_button_width()
         
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.Type.KeyPress:
@@ -1049,7 +1062,6 @@ class MindMenu(QtWidgets.QWidget):
 
     toggledInvisible = QtCore.pyqtSignal(bool)
     toggledBlind = QtCore.pyqtSignal(bool)
-    toggledThink = QtCore.pyqtSignal(bool)
     startDestruct = QtCore.pyqtSignal(int)
     closed = QtCore.pyqtSignal()
 
@@ -1066,20 +1078,8 @@ class MindMenu(QtWidgets.QWidget):
         self.blind_cb = QtWidgets.QCheckBox("Skrive med øjnene lukkede")
         self.layout().addWidget(self.blind_cb)
 
-        self.predict_cb = QtWidgets.QCheckBox("Ordforsagelse")
-        self.layout().addWidget(self.predict_cb)
-
-        self.shadow_cb = QtWidgets.QCheckBox("Skyggetekst")
-        self.layout().addWidget(self.shadow_cb)
-
         self.blindstart_cb = QtWidgets.QCheckBox("Blindstart")
         self.layout().addWidget(self.blindstart_cb)
-
-        self.think_cb = QtWidgets.QCheckBox("Tænkepauser")
-        self.layout().addWidget(self.think_cb)
-
-        self.deadline_cb = QtWidgets.QCheckBox("Nedskrivningsdødlinje")
-        self.layout().addWidget(self.deadline_cb)
 
         sd_layout = QtWidgets.QHBoxLayout()
         sd_layout.addWidget(QtWidgets.QLabel("Selvdestruktion (min):"))
@@ -1096,7 +1096,6 @@ class MindMenu(QtWidgets.QWidget):
 
         self.invisible_cb.toggled.connect(self.toggledInvisible.emit)
         self.blind_cb.toggled.connect(self.toggledBlind.emit)
-        self.think_cb.toggled.connect(self.toggledThink.emit)
         self.sd_btn.clicked.connect(lambda: self.startDestruct.emit(self.sd_spin.value()))
         close_btn.clicked.connect(self.hide_menu)
 
@@ -1269,7 +1268,6 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.mind_menu = MindMenu(central)
         self.mind_menu.toggledInvisible.connect(self.set_invisible)
         self.mind_menu.toggledBlind.connect(self.set_blind_mode)
-        self.mind_menu.toggledThink.connect(self.set_think)
         self.mind_menu.startDestruct.connect(self.start_self_destruct)
         self.mind_menu.closed.connect(lambda: self.current_editor().setFocus())
         self.mind_menu.hide()
@@ -1329,7 +1327,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.invisible_enabled = False
         self.blind_typing = False
         self.blind_visible = False
-        self.think_enabled = False
+        self.think_enabled = True
 
         self.invisible_delay = 5
         self.fade_speed = 1
@@ -1340,7 +1338,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.fade_timer = QtCore.QTimer()
         self.fade_timer.timeout.connect(self._fade_word)
 
-        self.think_delay = 15
+        self.think_delay = 300
         self.think_prompts = [
             "Hvad venter du på?",
             "Er du i gang med at redigere i dit hoved?",
@@ -1350,6 +1348,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.think_timer = QtCore.QTimer()
         self.think_timer.setSingleShot(True)
         self.think_timer.timeout.connect(self._think_prompt)
+        self.set_think(True)
 
         self.self_destruct_timer = QtCore.QTimer()
         self.self_destruct_timer.timeout.connect(self._tick_self_destruct)
@@ -1425,7 +1424,14 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         )
 
     def eventFilter(self, obj, event):
-        """Overvåg nøgler og tabbar for at holde layoutet stabilt."""
+        """Overvåg brugerinput og tabbar-resize for stabilt layout."""
+
+        if event.type() in (
+            QtCore.QEvent.Type.KeyPress,
+            QtCore.QEvent.Type.MouseButtonPress,
+            QtCore.QEvent.Type.TouchBegin,
+        ):
+            self._user_typed()
 
         if obj is self.tabs.tabBar() and event.type() in (
             QtCore.QEvent.Type.Resize,
@@ -1459,10 +1465,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.tabs.setDocumentMode(True)
         font_size = max(6, round(10 * self.scale_factor))
         self.tabs.setStyleSheet(
-            "QTabBar {background:#1a1a1a;}"
+            "QTabBar {background:#1a1a1a;border:0;}"
             f"QTabBar::tab {{background:transparent;padding:{padding}px {padding*3}px;color:#aaa;border:none;font-size:{font_size}pt;}}"
             "QTabBar::tab:selected {color:#fff;}"
-            "QTabWidget::pane {border:none;background:#1a1a1a;}"
+            "QTabWidget::pane {border:0;background:#1a1a1a;}"
         )
         if bar.isVisible():
             bar.setMaximumHeight(bar.sizeHint().height())
@@ -1579,6 +1585,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 editor.typed.connect(self._user_typed)
                 editor.auto_name = False
                 editor.setText(text)
+                editor.setFont(QtGui.QFont(self.font_family, max(6, round(10 * self.scale_factor))))
+                editor.set_scale(self.scale_factor)
                 if getattr(self, "blind_typing", False) and not getattr(self, "blind_visible", False):
                     editor.set_blind(True)
                 index = self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
@@ -1857,8 +1865,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             return
         import random
 
-        self.status.showMessage(random.choice(self.think_prompts), 5000)
-        self.think_timer.start(self.think_delay * 1000)
+        self.status.showMessage(random.choice(self.think_prompts))
 
     def _user_typed(self):
         if self.invisible_enabled and not self._fading:
@@ -1867,6 +1874,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             self.fade_timer.stop()
             self._fading = False
         if self.think_enabled:
+            self.status.clearMessage()
             self.think_timer.start(self.think_delay * 1000)
 
     def toggle_mind_menu(self):
