@@ -4,7 +4,7 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 
 ## Funktioner
 - Mørk brugerflade og Markdown-highlighting direkte i editoren
-- Automatisk genskabelse af seneste session med faner og zoomniveau
+- Automatisk genskabelse af seneste session med faner og zoomniveau (gemmes løbende)
 - Nye filer navngives automatisk med tidsstempel og gemmes i
   `~/.local/share/notator/` (eller `$XDG_DATA_HOME/notator`)
 - Første gang der gemmes kan filen omdøbes via `Ctrl+S`
@@ -14,6 +14,7 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 - Knappen til Hemingway Mode findes i statuslinjen
 - UI-skalering med `Ctrl++` og `Ctrl+-`
 - Viser batteristatus i statuslinjen via Waveshare UPS HAT
+  og viser tid til fuld opladning eller resterende driftstid
 - Fanelinje kan skjules med `Ctrl+Alt+.`
 - Fanelinjen viser en mørk grågrøn bjælke under den aktive fane
 - Live-rendering af Markdown-overskrifter direkte i teksten
@@ -70,6 +71,7 @@ Statuslinjen opdateres hvert halve minut, fx:
 
 ```
 Batteri: 87% (2t 15m tilbage)
+Batteri: 50% (1t 5m til fuld)
 ```
 ## Begrænsninger
 - Programmet kræver at Qt-platform pluginnet `xcb` er installeret for at køre under X11. På nogle systemer kan dette mangle og forhindre opstart.
