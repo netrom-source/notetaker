@@ -1083,6 +1083,9 @@ class MindMenu(QtWidgets.QWidget):
         self.hemi_cb = QtWidgets.QCheckBox("Hemmingway mode")
         self.layout().addWidget(self.hemi_cb)
 
+        self.think_cb = QtWidgets.QCheckBox("Tænkepauser")
+        self.layout().addWidget(self.think_cb)
+
         self.predict_cb = QtWidgets.QCheckBox("Ordforsagelse")
         self.layout().addWidget(self.predict_cb)
 
