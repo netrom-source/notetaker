@@ -1050,6 +1050,7 @@ class MindMenu(QtWidgets.QWidget):
     toggledInvisible = QtCore.pyqtSignal(bool)
     toggledBlind = QtCore.pyqtSignal(bool)
     toggledThink = QtCore.pyqtSignal(bool)
+    toggledHemi = QtCore.pyqtSignal(bool)
     startDestruct = QtCore.pyqtSignal(int)
     closed = QtCore.pyqtSignal()
 
@@ -1065,6 +1066,9 @@ class MindMenu(QtWidgets.QWidget):
 
         self.blind_cb = QtWidgets.QCheckBox("Skrive med øjnene lukkede")
         self.layout().addWidget(self.blind_cb)
+
+        self.hemi_cb = QtWidgets.QCheckBox("Hemmingway mode")
+        self.layout().addWidget(self.hemi_cb)
 
         self.predict_cb = QtWidgets.QCheckBox("Ordforsagelse")
         self.layout().addWidget(self.predict_cb)
@@ -1096,6 +1100,7 @@ class MindMenu(QtWidgets.QWidget):
 
         self.invisible_cb.toggled.connect(self.toggledInvisible.emit)
         self.blind_cb.toggled.connect(self.toggledBlind.emit)
+        self.hemi_cb.toggled.connect(self.toggledHemi.emit)
         self.think_cb.toggled.connect(self.toggledThink.emit)
         self.sd_btn.clicked.connect(lambda: self.startDestruct.emit(self.sd_spin.value()))
         close_btn.clicked.connect(self.hide_menu)
@@ -1211,6 +1216,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.resize(1280, 400)
         # Vis i frameless fullscreen
         self.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
         # Global font for hele applikationen. ``pick_mono_font`` sikrer
         # at der vælges en monospace-font som faktisk findes.
         self.font_family = pick_mono_font()
@@ -1223,6 +1229,8 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         # Central widget indeholder timer og faner
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
+        radius = self._corner_radius()
+        central.setStyleSheet(f"background:#1a1a1a;border-radius:{radius}px;")
         vlayout = QtWidgets.QVBoxLayout(central)
         vlayout.setContentsMargins(0, 0, 0, 0)
 
@@ -1269,6 +1277,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.mind_menu = MindMenu(central)
         self.mind_menu.toggledInvisible.connect(self.set_invisible)
         self.mind_menu.toggledBlind.connect(self.set_blind_mode)
+        self.mind_menu.toggledHemi.connect(self.set_hemingway)
         self.mind_menu.toggledThink.connect(self.set_think)
         self.mind_menu.startDestruct.connect(self.start_self_destruct)
         self.mind_menu.closed.connect(lambda: self.current_editor().setFocus())
@@ -1306,6 +1315,21 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.hemi_label.hide()
         self.status.addPermanentWidget(self.hemi_label)
 
+        self.invis_label = QtWidgets.QLabel("Usynlig blæk")
+        self.invis_label.setStyleSheet("color:#ddd;padding-right:6px;")
+        self.invis_label.hide()
+        self.status.addPermanentWidget(self.invis_label)
+
+        self.blind_label = QtWidgets.QLabel("Blindskrivning")
+        self.blind_label.setStyleSheet("color:#ddd;padding-right:6px;")
+        self.blind_label.hide()
+        self.status.addPermanentWidget(self.blind_label)
+
+        self.think_label = QtWidgets.QLabel("Tænkepauser")
+        self.think_label.setStyleSheet("color:#ddd;padding-right:6px;")
+        self.think_label.hide()
+        self.status.addPermanentWidget(self.think_label)
+
         # Label til batteristatus
         self.battery_label = QtWidgets.QLabel()
         self.battery_label.setStyleSheet("color:#ddd;padding-left:6px;")
@@ -1334,6 +1358,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         self.invisible_delay = 5
         self.fade_speed = 1
         self._fading = False
+        self._fade_word_start = 0
+        self._fade_letter_index = None
+        self._fade_alpha = 1.0
         self.invisible_idle = QtCore.QTimer()
         self.invisible_idle.setSingleShot(True)
         self.invisible_idle.timeout.connect(self._start_fade)
@@ -1370,6 +1397,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         QtCore.QTimer.singleShot(0, lambda: self._move_indicator(self.tabs.currentIndex()))
         # Sørg for fokus i skrivefeltet ved opstart
         QtCore.QTimer.singleShot(0, lambda: self.current_editor().setFocus())
+        self._apply_corner_mask()
 
     # ----- Hjælpemetoder -----
 
@@ -1438,6 +1466,7 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
+        self._apply_corner_mask()
         if self.timer_menu.isVisible() and self.timer_menu.parent():
             self.timer_menu.update_scale(self.font(), self.width())
         if self.file_menu.isVisible() and self.file_menu.parent():
@@ -1446,6 +1475,22 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             self.delete_menu.update_scale(self.font(), self.width())
         if self.power_menu.isVisible() and self.power_menu.parent():
             self.power_menu.update_scale(self.font(), self.width(), self.height())
+
+    def _corner_radius(self) -> int:
+        dpi = self.logicalDpiX()
+        return int(dpi * 0.5 / 2.54)
+
+    def _apply_corner_mask(self) -> None:
+        radius = self._corner_radius()
+        path = QtGui.QPainterPath()
+        rect = QtCore.QRectF(self.rect())
+        path.addRoundedRect(rect, radius, radius)
+        region = QtGui.QRegion(path.toFillPolygon().toPolygon())
+        self.setMask(region)
+        if self.centralWidget():
+            self.centralWidget().setStyleSheet(
+                f"background:#1a1a1a;border-radius:{radius}px;"
+            )
 
     def _style_tabs(self, padding: int = 4):
         """Stil opsætningen af fanelinjen.
@@ -1779,6 +1824,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def set_invisible(self, state: bool) -> None:
         self.invisible_enabled = state
+        self.invis_label.setVisible(state)
+        self.mind_menu.invisible_cb.blockSignals(True)
+        self.mind_menu.invisible_cb.setChecked(state)
+        self.mind_menu.invisible_cb.blockSignals(False)
         if state:
             self.invisible_idle.start(self.invisible_delay * 1000)
         else:
@@ -1789,6 +1838,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     def set_blind_mode(self, state: bool) -> None:
         self.blind_typing = state
         self.blind_visible = False
+        self.blind_label.setVisible(state)
+        self.mind_menu.blind_cb.blockSignals(True)
+        self.mind_menu.blind_cb.setChecked(state)
+        self.mind_menu.blind_cb.blockSignals(False)
         self._apply_blind()
 
     def toggle_blind_visibility(self):
@@ -1804,6 +1857,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def set_think(self, state: bool) -> None:
         self.think_enabled = state
+        self.think_label.setVisible(state)
+        self.mind_menu.think_cb.blockSignals(True)
+        self.mind_menu.think_cb.setChecked(state)
+        self.mind_menu.think_cb.blockSignals(False)
         if state:
             self.think_timer.start(self.think_delay * 1000)
         else:
@@ -1831,26 +1888,62 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
     def _start_fade(self):
         if not self.invisible_enabled:
             return
-        self._fading = True
-        interval = max(1, int(1000 / max(1, self.fade_speed)))
-        self.fade_timer.start(interval)
-
-    def _fade_word(self):
         editor = self.current_editor()
         if not editor:
             return
         text = editor.toPlainText().rstrip()
         if not text:
+            return
+        last_space = text.rfind(" ")
+        self._fade_word_start = last_space + 1 if last_space != -1 else 0
+        self._fade_letter_index = len(text) - self._fade_word_start - 1
+        self._fade_alpha = 1.0
+        self._fading = True
+        interval = max(10, int(1000 / (max(1, self.fade_speed) * 10)))
+        self.fade_timer.start(interval)
+
+    def _fade_word(self):
+        editor = self.current_editor()
+        if not editor or self._fade_letter_index is None:
             self.fade_timer.stop()
             self._fading = False
             return
-        words = text.split()
-        if words:
-            words.pop()
-            editor.blockSignals(True)
-            editor.setPlainText(" ".join(words))
-            editor.moveCursor(QtGui.QTextCursor.MoveOperation.End)
-            editor.blockSignals(False)
+        pos = self._fade_word_start + self._fade_letter_index
+        cursor = editor.textCursor()
+        cursor.setPosition(pos)
+        cursor.movePosition(
+            QtGui.QTextCursor.MoveOperation.NextCharacter,
+            QtGui.QTextCursor.MoveMode.KeepAnchor,
+        )
+        color = QtGui.QColor("#e6e6e6")
+        color.setAlphaF(self._fade_alpha)
+        fmt = QtGui.QTextCharFormat()
+        fmt.setForeground(color)
+        cursor.mergeCharFormat(fmt)
+        self._fade_alpha -= 0.1
+        if self._fade_alpha <= 0:
+            cursor.removeSelectedText()
+            self._fade_alpha = 1.0
+            self._fade_letter_index -= 1
+            if self._fade_letter_index < 0:
+                # fjern eventuel foranstående mellemrum
+                if self._fade_word_start > 0:
+                    cursor.setPosition(self._fade_word_start - 1)
+                    cursor.movePosition(
+                        QtGui.QTextCursor.MoveOperation.NextCharacter,
+                        QtGui.QTextCursor.MoveMode.KeepAnchor,
+                    )
+                    if cursor.selectedText() == " ":
+                        cursor.removeSelectedText()
+                text = editor.toPlainText().rstrip()
+                if not text:
+                    self.fade_timer.stop()
+                    self._fading = False
+                    self._fade_letter_index = None
+                else:
+                    last_space = text.rfind(" ")
+                    self._fade_word_start = last_space + 1 if last_space != -1 else 0
+                    self._fade_letter_index = len(text) - self._fade_word_start - 1
 
     def _think_prompt(self):
         if not self.think_enabled:
@@ -1877,19 +1970,21 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     # ----- Hemmingway-tilstand -----
 
-    def toggle_hemingway(self):
-        """Aktiver eller deaktiver Hemingway Mode.
-
-        Hemmingway-tilstand forhindrer brugeren i at slette tekst eller
-        bevæge markøren bagud og kan slås til via genvejen ``Ctrl+H``.
-        """
-        self.hemingway = not self.hemingway
+    def set_hemingway(self, state: bool) -> None:
+        self.hemingway = state
         for i in range(self.tabs.count()):
             editor = self.tabs.widget(i)
-            editor.hemingway = self.hemingway
-        self.hemi_label.setVisible(self.hemingway)
-        tilstand = "aktiveret" if self.hemingway else "deaktiveret"
+            editor.hemingway = state
+        self.hemi_label.setVisible(state)
+        self.mind_menu.hemi_cb.blockSignals(True)
+        self.mind_menu.hemi_cb.setChecked(state)
+        self.mind_menu.hemi_cb.blockSignals(False)
+        tilstand = "aktiveret" if state else "deaktiveret"
         self.status.showMessage(f"Hemmingway {tilstand}", 2000)
+
+    def toggle_hemingway(self):
+        """Aktiver eller deaktiver Hemingway Mode med genvej."""
+        self.set_hemingway(not self.hemingway)
 
     # ----- Gem og genskab session -----
 
