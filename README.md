@@ -16,15 +16,19 @@ Notator er et minimalistisk skriveprogram skrevet i Python og PyQt6. Programmet 
 - Viser batteristatus i statuslinjen via Waveshare UPS HAT
 - Fanelinje kan skjules med `Ctrl+Alt+.`
 - Fanelinjen viser en mørk grågrøn bjælke under den aktive fane
+- Fanelinjen har ingen hvid top-linje for et renere udseende
 - Live-rendering af Markdown-overskrifter direkte i teksten
 - Timerens menu glider ned under tidtagningen og vælgeren kan betjenes med tastatur
 - Valgte preset i timer-menuen fremhæves tydeligt ved navigation med piletaster
 - Alle tekster bruger JetBrains Mono eller nærmeste tilgængelige monospace-font
+- Åbnede dokumenter bruger nu samme standard-tekststørrelse som nye filer
 - Timer-menuen kan lukkes med `Esc` og bevarer fokus i menuens valg
 - Tabbar og timer-menu skjules med glidende animationer
 - Statuslinjen har afrundede hjørner og skygge for bedre læsbarhed
 - Timeren blinker rødt når tiden er udløbet
+- Tænkepauser aktiveres automatisk efter fem minutters inaktivitet og notifikationen bliver stående indtil der registreres input
 - Åbn og gem foregår i en menu der glider op fra bunden
+- Power-menuens markeringsbjælke tilpasser sig dynamisk efter længste menupunkt
 - Scrollbars har et enkelt, fladt design
 
 ## Tastaturgenveje
@@ -79,3 +83,7 @@ Batteri: 87% (2t 15m tilbage)
 - 18-07-2025: Filnavnet kan nu ændres ved første gem, Hemingway-knappen er flyttet til statuslinjen og timer-menuen er integreret med slide-animation.
 - 18-07-2025: Forbedret timer-navigation, fontvalg med fallback og moderne statuslinje.
 - 18-07-2025: Timeren blinker ved udløb og fil-dialogerne er erstattet af indbyggede menuer.
+- 20-07-2025: Fjernet skyggetekst, ordforsagelse og neskrivningsdødslinje;
+  tænkepauser aktiveres automatisk efter fem minutter og forsvinder ved input;
+  fanelinjen har ingen hvid top-linje; tekststørrelsen er ens for alle dokumenter;
+  power-menuens markeringsbjælke justeres dynamisk.
