@@ -47,8 +47,9 @@ class UPSMonitor:
     """Læser batterioplysninger fra Waveshare UPS HAT (E) via I2C.
 
     Registrene er beskrevet i Waveshares dokumentation. Her anvendes
-    kun de mest relevante: batteriprocent og den anslåede tid tilbage
-    i minutter. Alle adresser er forudsat på I2C-adressen ``0x2d``.
+    kun de mest relevante: batteriprocent, opladningsstatus samt
+    estimerede tider for af- og opladning i minutter. Alle adresser er
+    forudsat på I2C-adressen ``0x2d``.
     """
 
     ADDRESS = 0x2D
@@ -56,6 +57,9 @@ class UPSMonitor:
     REG_PERCENT_H = 0x25
     REG_TIME_L = 0x28  # resterende afladningstid i minutter
     REG_TIME_H = 0x29
+    REG_CHARGE_TIME_L = 0x2A  # resterende opladningstid i minutter
+    REG_CHARGE_TIME_H = 0x2B
+    REG_CHARGE_STATE = 0x02
 
     def __init__(self, bus: int = 1) -> None:
         self.bus_num = bus
@@ -73,14 +77,31 @@ class UPSMonitor:
         high = self.bus.read_byte_data(self.ADDRESS, reg_h)
         return (high << 8) | low
 
-    def status(self) -> tuple[int | None, int | None]:
-        """Returner (procent, minutter) eller (None, None) ved fejl."""
+    def _read_byte(self, reg: int) -> int:
+        """Læs et enkelt register."""
+        if not self.bus:
+            raise OSError("Ingen I2C bus")
+        return self.bus.read_byte_data(self.ADDRESS, reg)
+
+    def status(
+        self,
+    ) -> tuple[int | None, int | None, int | None, bool | None]:
+        """Returner batteriprocent, afladnings- og opladningstid.
+
+        Hvis der opstår en fejl returneres ``(None, None, None, None)``.
+        """
+
         try:
             pct = self._read_word(self.REG_PERCENT_L, self.REG_PERCENT_H)
-            mins = self._read_word(self.REG_TIME_L, self.REG_TIME_H)
+            dis_mins = self._read_word(self.REG_TIME_L, self.REG_TIME_H)
+            chg_mins = self._read_word(
+                self.REG_CHARGE_TIME_L, self.REG_CHARGE_TIME_H
+            )
+            state = self._read_byte(self.REG_CHARGE_STATE)
+            charging = bool(state & 0x80)
         except OSError:
-            return None, None
-        return pct, mins
+            return None, None, None, None
+        return pct, dis_mins, chg_mins, charging
 
 # Fremhæv Markdown under skrivning
 class MarkdownHighlighter(QtGui.QSyntaxHighlighter):
@@ -1398,6 +1419,11 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
             self.new_tab()
             self.apply_fixed_scale()
 
+        # Gem sessionen løbende så åbne noter gendannes ved genstart
+        self._session_timer = QtCore.QTimer()
+        self._session_timer.timeout.connect(self.save_session)
+        self._session_timer.start(10000)
+
         # Genveje
         self._setup_shortcuts()
 
@@ -1454,14 +1480,22 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
 
     def update_battery_status(self) -> None:
         """Hent data fra UPS HAT'en og opdater labelen."""
-        pct, mins = self.ups.status()
+        pct, dis_mins, chg_mins, charging = self.ups.status()
         if pct is None:
             self.battery_label.setText("UPS ikke fundet")
             return
-        hours, minutes = divmod(mins, 60)
-        self.battery_label.setText(
-            f"Batteri: {pct}% ({hours}t {minutes}m tilbage)"
-        )
+        if charging and chg_mins is not None:
+            hours, minutes = divmod(chg_mins, 60)
+            self.battery_label.setText(
+                f"Batteri: {pct}% ({hours}t {minutes}m til fuld)"
+            )
+        elif dis_mins is not None:
+            hours, minutes = divmod(dis_mins, 60)
+            self.battery_label.setText(
+                f"Batteri: {pct}% ({hours}t {minutes}m tilbage)"
+            )
+        else:
+            self.battery_label.setText(f"Batteri: {pct}%")
 
     def eventFilter(self, obj, event):
         """Overvåg brugerinput og tabbar-resize for stabilt layout."""
@@ -2021,8 +2055,14 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         genskabe arbejdsfladen.
         """
         os.makedirs(DATA_DIR, exist_ok=True)
+        files: list[str] = []
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            path = getattr(w, "file_path", None)
+            if path:
+                files.append(path)
         data = {
-            "files": [self.tabs.widget(i).file_path for i in range(self.tabs.count())],
+            "files": files,
             "current": self.tabs.currentIndex(),
             "size": [self.width(), self.height()],
             "pos": [self.x(), self.y()],
@@ -2044,10 +2084,9 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
         except FileNotFoundError:
             return False
         files = data.get("files", [])
-        if not files:
-            return False
+        loaded = False
         for path in files:
-            if os.path.exists(path):
+            if path and os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
                     text = f.read()
                 editor = NoteTab(path)
@@ -2057,7 +2096,10 @@ class NotatorMainWindow(QtWidgets.QMainWindow):
                 if getattr(self, "blind_typing", False) and not getattr(self, "blind_visible", False):
                     editor.set_blind(True)
                 self.tabs.addTab(editor, os.path.splitext(os.path.basename(path))[0])
-        self.tabs.setCurrentIndex(min(data.get("current", 0), self.tabs.count()-1))
+                loaded = True
+        if not loaded:
+            return False
+        self.tabs.setCurrentIndex(min(data.get("current", 0), self.tabs.count() - 1))
         size = data.get("size")
         if size:
             self.resize(*size)
